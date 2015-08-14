@@ -100,6 +100,7 @@ struct QEvent{
 TH1F *hRawQDC[numPanels];  
 TH1F *hCutQDC[numPanels];
 TH1F *hThreshQDC[numPanels];
+TH1F *hLEDCutQDC[numPanels];
 
 void builtVetoCal(string Input = ""){
 
@@ -175,6 +176,8 @@ void builtVetoCal(string Input = ""){
 			hCutQDC[i] = new TH1F(hname,hname,nqdc_bins,ll_qdc,ul_qdc);
 			sprintf(hname,"hThreshQDC%d",i);
 			hThreshQDC[i] = new TH1F(hname,hname,500,ll_qdc,500);
+			sprintf(hname,"hLEDCutQDC%d",i);
+			hLEDCutQDC[i] = new TH1F(hname,hname,500,ll_qdc,500);
 		}
 
 		Long64_t CountsBelowThresh[numPanels] = {0};
@@ -269,6 +272,11 @@ void builtVetoCal(string Input = ""){
 				EventMatch = true; 
 				//printf("EventMatch true.  qdc.EventCount:%i  prevqdc.EventCount:%i \n",qdc.EventCount,prevqdc.EventCount);
 			}
+			else if (abs(qdc.EventCount - prevqdc.EventCount) > 1) {
+				printf(" EventCount mismatch! Run:%i current:%i previous:%i card:%i prev.card:%i  Breaking at %.0f%% through file.\n",run,i,qdc.card,prevqdc.card,((Float_t)i/nentries)*100);
+				break;
+			}
+
 			
 			
 			if (EventMatch) {

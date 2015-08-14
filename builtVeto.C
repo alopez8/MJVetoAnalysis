@@ -187,7 +187,10 @@ void builtVeto(string Input = ""){
 				EventMatch = true; 
 				//printf("EventMatch true.  qdc.EventCount:%i  prevqdc.EventCount:%i \n",qdc.EventCount,prevqdc.EventCount);
 			}
-			
+			else if (abs(qdc.EventCount - prevqdc.EventCount) > 1) {
+				printf(" EventCount mismatch! Run:%i current:%i previous:%i card:%i prev.card:%i  Breaking at %.0f%% through file.\n",run,i,qdc.card,prevqdc.card,((Float_t)i/nentries)*100);
+				break;
+			}
 			
 			if (EventMatch) {
 				
