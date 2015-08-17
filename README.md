@@ -1,2 +1,2 @@
 # MJVetoAnalysis
-Container for analysis of MJD muon veto data.
+Routines to analyze MJD muon veto data in ROOT.
