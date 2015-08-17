@@ -8,7 +8,8 @@
 	Will also check if files have been blinded and aren't readable.
 
 	Usage: 
-	root[0] .X CheckFiles.C
+	root[0] .X CheckFiles.C 
+	root[0] .X CheckFiles.C ("InputFile_WithNoExtension")
 */
 
 void CheckFiles(string Input = ""){

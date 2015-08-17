@@ -193,7 +193,7 @@ void builtVetoCal(string Input = ""){
 
 		// initialize 
 		InputList >> run;
-		if (mode==0) sprintf(TheFile,"~/dev/datasets/builtVeto/OR_run%i.root",run);
+		if (mode==0) sprintf(TheFile,"~/dev/datasets/muFinder/OR_run%i.root",run);
 		else if (mode==1) sprintf(TheFile,"/global/project/projectdirs/majorana/data/mjd/surfmjd/data/built/P3JDY/OR_run%u.root",run); 
 		TChain *VetoTree = new TChain("VetoTree");
 		VetoTree->AddFile(TheFile);
@@ -272,7 +272,7 @@ void builtVetoCal(string Input = ""){
 				EventMatch = true; 
 				//printf("EventMatch true.  qdc.EventCount:%i  prevqdc.EventCount:%i \n",qdc.EventCount,prevqdc.EventCount);
 			}
-			else if (abs(qdc.EventCount - prevqdc.EventCount) > 1) {
+			else if (abs(qdc.EventCount - prevqdc.EventCount) > 1 && i > 2) {
 				printf(" EventCount mismatch! Run:%i current:%i previous:%i card:%i prev.card:%i  Breaking at %.0f%% through file.\n",run,i,qdc.card,prevqdc.card,((Float_t)i/nentries)*100);
 				break;
 			}
