@@ -1,6 +1,6 @@
 /*
 	vetoDisplay32.C
-	Clint Wiseman, USC/Majorana
+	Clint Wiseman & David Tedeschi, USC/Majorana
 	August 2015.
 
 	Illustrates a muon candidate event (input from text file) to help with 
