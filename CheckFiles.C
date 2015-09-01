@@ -35,7 +35,11 @@ void CheckFiles(string Input = ""){
 
 		// if file doesn't exist, ROOT will quit.
 	 	TFile f(TheFile);
-    	f.Close();
+	 	if (!f || f->IsZombie()) {
+       		printf("Cannot open %s!", TheFile);
+       		break;
+    	}
+    	else f.Close();
     }
 
 }
