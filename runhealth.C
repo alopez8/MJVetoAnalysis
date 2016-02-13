@@ -6,7 +6,7 @@
  => This code can be run on PDSF.  It takes a .txt file as an input argument,
 	and uses the name of the text file to generate output
 	
- => The input .txt file MUST be called runhealth_list.txt
+=> The input .txt file MUST be called runhealth_list.txt
 	The input file can have run numbers from various directories, an example of the format is below
 	
 		@DirectoryName1
@@ -22,10 +22,10 @@
 		30001
 		30002
 		!DONOTDELETE
-
+	
 	Usage:
-	CINT: root[0] .X builtVeto.C ("Filename_list_of_run_numbers")  <--- NO .TXT extension.
-	bash: root -b -q -l builtVeto.C ("The_filename_without_extension")
+	CINT: root[0] .X runhealth.C ()
+	bash: root -b -q -l runhealth.C ()
 */
 
 #ifndef __CINT__
@@ -118,11 +118,18 @@ void runhealth(){
 
 	//define global variables/arrays/plots
   	int run = 0;			// run number
-	const int ledcut = 20; //define led cut as 20 panels hit
+	const int ledcut = 20; //define led cut as > 20 panels hit
 	int filesScanned = 0;	// counter	
 	Int_t ledcount = 0;
 	Int_t threshold[numPanels] = {0}; //recalculated led threshold for runs investigated
-	//mjbits event/file counters
+	Float_t totalduration = 0;
+	Int_t totalnentries = 0;
+	Int_t totalledcount = 0;
+	Int_t totalledcountPanel[numPanels] = {0}; 
+	Float_t ledqdcsquaredsum[numPanels] = {0}; 
+	Float_t ledqdcsum[numPanels] = {0}; 	 
+
+	//mjvbits event counters
 	Int_t kmcevcount = 0; //kMissingChannels counter
 	Int_t kecevcount = 0; //kExtraChannels counter
 	Int_t ksoevcount = 0; //kScalerOnly counter
@@ -132,6 +139,8 @@ void runhealth(){
 	Int_t khwcmevcount = 0; //kHWCountMismatch counter
 	Int_t kLEDsOffevcount = 0;	//counts how many events are NOT LEDs
 	Int_t ksoerrorevcount = 0; //counts how many events with missing QDC fail to trigger kScalerOnly
+	
+	//mjvbits file counters
 	Int_t kmcfilecount = 0; //kMissingChannels file counter
 	Int_t kecfilecount = 0; //kExtraChannels file counter
 	Int_t ksofilecount = 0; //kScalerOnly file counter
@@ -140,24 +149,16 @@ void runhealth(){
 	Int_t kdcfilecount = 0; //kDuplicateChannels file counter
 	Int_t khwcmfilecount = 0; //kHWCountMismatch file counter
 	Int_t kLEDsOffFilecount = 0; //counts how many files have ZERO LEDs
-	Int_t ksoerrorfilecount = 0; //counts how many files with missing QDC fail to trigger kScalerOnly
-	
-	Int_t totalnentries = 0;
+	Int_t ksoerrorfilecount = 0; //counts how many files with missing QDC fail to trigger kScalerOnly 
 	
 	//led (low) qdc threshold values from findThresh.C
-	Int_t ledthresh[numPanels] = {136, 129, 115, 108, 172, 129, 129, 122, 129, 108, 122, 115, 108, 115, 108, 186, 65, 165, 100, 136, 93, 100, 143, 79, 136, 115, 93, 122, 158, 172, 129, 93};
+	Int_t ledthresh[numPanels] = {545, 442, 642, 478, 818, 525, 508, 959, 729, 674, 626, 553, 458, 438, 670, 784, 348, 412, 486, 443, 613, 600, 382, 480, 632, 388, 562, 444, 480, 596, 661, 515};
 	
-	// Loop over files in dataset
-	ifstream InputList;
-  	InputList.open(file.c_str());
-	string InputLine;
-	Char_t TheFile[200];
-	char run_dir[] = "empty";
+	
 	
 	//prepare histograms and graphs
 	TH1D *TotalMultiplicity = new TH1D("TotalMultiplicity","Events over threshold",numPanels,0,numPanels);
 	TotalMultiplicity->GetXaxis()->SetTitle("number of panels hit");
-	TH1F *hLEDCutDT = new TH1F("hLEDCutDT", "LED Delta T",200, 0, 20);
 	TH1F *hRawQDC[numPanels];
 	const int nqdc_bins=4200;
 	const int ll_qdc = 0;
@@ -169,15 +170,21 @@ void runhealth(){
 		hRawQDC[i]->GetXaxis()->SetTitle("QDC Value");
 	}
 	
-	TGraph *gRunvFreq = new TGraph(2000);
-	gRunvFreq->SetTitle("run number vs ledcount/duration");
-	gRunvFreq->GetXaxis()->SetTitle("Run Number");
-	gRunvFreq->GetYaxis()->SetTitle("Measured LED Frequency");
-	gRunvFreq->SetMarkerColor(4);
-	gRunvFreq->SetMarkerStyle(21);
-	gRunvFreq->SetMarkerSize(0.5);
+	TGraph *gRunvFreq;
+	gRunvFreq = new TGraph(filesToScan);
+	TH1F *hDTFile;
+	hDTFile = new TH1F[filesToScan];
+	TGraph *gMultvTimeFile;
+	gMultvTimeFile = new TGraph[filesToScan];
+	
 	
 	//start file loop
+	// Loop over files in dataset
+	ifstream InputList;
+  	InputList.open(file.c_str());
+	string InputLine;
+	Char_t TheFile[200];
+	char run_dir[] = "empty";
 	if (InputList.is_open()){
 		while(true){	
 			int run = 0;
@@ -230,14 +237,21 @@ void runhealth(){
 				printf("Run Type: %u\n",VetoRun->GetRunType()); 
 				
 				//single file counters/ variables/ plots
-
+				sprintf(hname,"hDTFile%d", run);
+				hDTFile[filesScanned] = new TH1F(hname,hname,100,0,10);
+				sprintf(hname,"gMultvTimeFile%d", run);
+				gMultvTimeFile[filesScanned] = new TGraph(nentries);
+				gMultvTimeFile[filesScanned].SetName(hname);
 
 				bool IsEmpty = false;
 				long duration = 0;
 				long start = 0;
 				long stop = 0;
 				Int_t ledcount = 0;
-				Int_t totalledcount = 0;
+				Float_t Tevent = 0;
+				Float_t Tevent_prev = 0;
+				Float_t deltaT = 0;
+
 				
 				//veto error bit file bits/counters
 				bool kmcfilebit = false;
@@ -248,13 +262,12 @@ void runhealth(){
 				bool kdcfilebit = false;
 				bool khwcmfilebit = false;
 				bool ksoerrorfilebit = false;
-
-			
-			
+				
 				GATDataSet ds(run);
 				start = GetStartUnixTime(ds);
 				stop = GetStopUnixTime(ds);
 				duration = stop - start;
+				totalduration += duration;
 				totalnentries += nentries;
 
 			
@@ -268,9 +281,6 @@ void runhealth(){
 					bool isLED = false;
 					Int_t lednumPanelsHit = 0;
 					Float_t time = vetoEvent->GetTime()/1E9; //event time in seconds
-					Float_t deltaT = 0;
-					Float_t Tnew = 0;
-					Float_t Told = 0;
 					bool kmcbit = false;
 					bool kecbit = false;
 					bool ksobit = false;
@@ -280,6 +290,7 @@ void runhealth(){
 					bool khwcmbit = false;
 					bool kLEDsOffbit = false;
 					bool ksoerrorbit = false;
+					
 					
 //[A. Begin] access mjtVetoData and sort into arrays
 				{
@@ -330,26 +341,43 @@ void runhealth(){
 						
 
 					//being led analysis
+					//fill event DT histograms
+					Tevent = time;
+					deltaT = Tevent - Tevent_prev;
+					Tevent_prev = Tevent;
+					hDTFile[filesScanned].Fill(deltaT);
+				
+
+
+				
 					//Identify LEDs
 					for (int k = 0; k<numPanels; k++){
-		
+	
 						hRawQDC[k]->Fill(QDC[k]);
-
-						if (QDC[k] > ledthresh[k]) lednumPanelsHit++;
+							if (QDC[k] > ledthresh[k]) lednumPanelsHit++;
 					}
 					//cout << "lednumPanelsHit = " << lednumPanelsHit << endl;
+					
+					//fill event multiplicity vs time 
+					if (time < 5000){
+						gMultvTimeFile[filesScanned].SetPoint(z,time,lednumPanelsHit);
+					}	
+					
 					TotalMultiplicity->Fill(lednumPanelsHit);
 					if (lednumPanelsHit > ledcut) {
 						isLED = true;
 						ledcount++;
 						totalledcount++;
 					}
-					//calc LED dt
+					//calc rms 
 					if (isLED){
-						Tnew = time;
-						deltaT = Tnew - Told;
-						Told = Tnew;
-						hLEDCutDT->Fill(deltaT);
+						
+						for (int k = 0; k<numPanels; k++){			
+							totalledcountPanel[k]++;					
+							ledqdcsum[k] += QDC[k];					
+							ledqdcsquaredsum[k] += QDC[k]*QDC[k];	
+						}											
+					
 					}
 					
 					//vbits
@@ -397,7 +425,8 @@ void runhealth(){
 					if (khwcmbit) {
 						printf(" New Error: Bit kHWCountMismatch  Count: %i  Run: %i  Entry: %li  Time: %.5f  %.2f%%.\n"
 					,khwcmevcount,run,z,time,((double)z/nentries)*100); } 
-*/						
+*/		
+/*				
 					// detailed printout
 					if (kmcbit){
 						printf(" New Error: Bit kMissingChannels  Count: %i  Run: %i  Entry: %li  Time: %.5f  %.2f%%.\n"
@@ -484,66 +513,96 @@ void runhealth(){
 						printf("  kScalerOnly Bit: %i  QDC[0]: %f  QDC[1]: %f  QDC[2]: %f  QDC[3]: %f  QDC[4]: %f  QDC[5]: %f  QDC[6]: %f  QDC[7]: %f  QDC[8]: %f  QDC[9]: %f  QDC[10]: %f  QDC[11]: %f  QDC[12]: %f  QDC[13]: %f  QDC[14]: %f  QDC[15]: %f  QDC[16]: %f  QDC[17]: %f  QDC[18]: %f  QDC[19]: %f  QDC[20]: %f  QDC[21]: %f  QDC[22]: %f  QDC[23]: %f  QDC[24]: %f  QDC[25]: %f  QDC[26]: %f  QDC[27]: %f  QDC[28]: %f  QDC[29]: %f  QDC[30]: %f  QDC[31]: %f\n\n"
 						,ksobit, QDC[0], QDC[1], QDC[2], QDC[3], QDC[4], QDC[5], QDC[6], QDC[7], QDC[8], QDC[9], QDC[10], QDC[11], QDC[12], QDC[13], QDC[14], QDC[15], QDC[16], QDC[17], QDC[18], QDC[19], QDC[20], QDC[21], QDC[22], QDC[23], QDC[24], QDC[25], QDC[26], QDC[27], QDC[28], QDC[29], QDC[30], QDC[31]);
 					}	
+*/					
 				}
 //[B. End]		
-					
+				
 					
 				} //End loop over entries
 				
-				//deltaT stats
-				Int_t dt_maxbin = hLEDCutDT->GetMaximumBin();
-				hLEDCutDT->GetXaxis()->SetRange(dt_maxbin-100,dt_maxbin+100);
-				Double_t dt_mean = hLEDCutDT->GetMean();
-				gRunvFreq->SetPoint(filesScanned, run, 1.0/dt_mean);
-				hLEDCutDT->Reset();
+				//ledfreq stats
+				gRunvFreq->SetPoint(filesScanned,run,float(ledcount)/float(duration));	
 				
-			if (kmcfilebit) kmcfilecount++;
-			if (kecfilebit) kecfilecount++;
-			if (ksofilebit) ksofilecount++;
-			if (kbtsfilebit) kbtsfilecount++;
-			if (koosfilebit) koosfilecount++;
-			if (kdcfilebit) kdcfilecount++;
-			if (khwcmfilebit) khwcmfilecount++;
-			if (ledcount == 0) kLEDsOffFilecount++;
-			if (ksoerrorfilebit) ksoerrorfilecount++;
+				if (kmcfilebit) kmcfilecount++;
+				if (kecfilebit) kecfilecount++;
+				if (ksofilebit) ksofilecount++;
+				if (kbtsfilebit) kbtsfilecount++;
+				if (koosfilebit) koosfilecount++;
+				if (kdcfilebit) kdcfilecount++;
+				if (khwcmfilebit) khwcmfilecount++;
+				if (ledcount == 0) kLEDsOffFilecount++;
+				if (ksoerrorfilebit) ksoerrorfilecount++;
 
 
-			printf(" Run: %i   # of LEDs: %i \n",run,ledcount);
-			filesScanned++;
-			//return run to zero before reading next line (so directory won't be read as a run)
-			run = 0;
+				printf(" Run: %i   # of LEDs: %i \n",run,ledcount);
+				filesScanned++;
+				//return run to zero before reading next line (so directory won't be read as a run)
+				run = 0;
 			
 			
 			} //end loop over runs
 		
-		} //end loop over InputList (exits this loop when end of input list file is reached
+		} //end loop over InputList (exits this loop when end of input list file is reached)
 		InputList.close();
 
 	} //end of InputList if statement
 	
 	//get histogram statistics
-	cout << " i | pedestal | sigma | threshold " << endl;
+	cout << " i | pedestal | mean | sigma | threshold " << endl;
 	for (Int_t i=0; i<numPanels; i++){
-		Float_t pedestal = hRawQDC[i]->GetMaximumBin();
-		Float_t sigma = hRawQDC[i]->GetStdDev();
-		threshold[i] = pedestal + 1.0*sigma;
-		cout << i << " | " << pedestal << " | " << sigma << " | " << threshold[i] << endl;
+		Float_t pedestal = hRawQDC[i]->GetMaximumBin();	
+		
+		Float_t mean = ledqdcsum[i]/float(totalledcountPanel[i]); 				
+		Float_t rmssquared = ledqdcsquaredsum[i]/float(totalledcountPanel[i]);	
+		Float_t sigma = sqrt(rmssquared - mean*mean);				
+		
+		threshold[i] = pedestal + 2.0*sigma;
+		
+		cout << i << " | " << pedestal << " | " << mean << " | " << sigma << " | " << threshold[i] << endl;
 		
 	}	
 	
 	//write out graphs and histograms
 	TotalMultiplicity->Write("TotalMultiplicity",TObject::kOverwrite);
 	
+	gRunvFreq->SetTitle("run number vs ledcount/duration");
+	gRunvFreq->GetXaxis()->SetTitle("Run Number");
+	gRunvFreq->GetYaxis()->SetTitle("Measured LED Frequency");
+	gRunvFreq->SetMarkerColor(4);
+	gRunvFreq->SetMarkerStyle(21);
+	gRunvFreq->SetMarkerSize(0.5);
 	gRunvFreq->SetLineColorAlpha(kWhite,0);
 	gRunvFreq->Write("gRunvFreq",TObject::kOverwrite);
 	
 	
-	
 	TDirectory *rawqdc = RootFile->mkdir("RawQDC");
+	TDirectory *FileDT = RootFile->mkdir("FileDT");
+	TDirectory *FileMultvTime = RootFile->mkdir("FileMultvTime");
+	
 	for (Int_t i = 0; i<numPanels; i++){
 		RootFile->cd("RawQDC");
 		hRawQDC[i]->Write();
 	}	
+	
+	for (Int_t i = 0; i<filesToScan; i++){
+		RootFile->cd("FileDT");
+		hDTFile[i].SetTitle("Delta T of sequential entries");	//c:569 check
+		hDTFile[i].GetXaxis()->SetTitle("Delta T (seconds)");
+		hDTFile[i].GetYaxis()->SetTitle("Multiplicity");
+		hDTFile[i].Write();
+	}	
+	
+	for (Int_t i = 0; i<filesToScan; i++){
+		RootFile->cd("FileMultvTime");
+		gMultvTimeFile[i].SetTitle("low threshold number of panels hit vs event #");
+		gMultvTimeFile[i].GetXaxis()->SetTitle("Event Number");
+		gMultvTimeFile[i].GetYaxis()->SetTitle("Multiplicity");
+		gMultvTimeFile[i].SetMarkerColor(4);
+		gMultvTimeFile[i].SetMarkerStyle(21);
+		gMultvTimeFile[i].SetMarkerSize(0.5);
+		gMultvTimeFile[i].SetLineColorAlpha(kWhite,0);
+		gMultvTimeFile[i].Write();
+	}
 	
 	RootFile->cd();
 	
@@ -588,7 +647,11 @@ void runhealth(){
 //[C. End]
 
 RootFile->Close();
-printf("Total LED Count = %i\n",totalledcount);
+delete[] hDTFile;
+delete[] gMultvTimeFile;
+delete gRunvFreq;
+
+printf("Total LED Count = %i\n\n Total # of entries %i\n\n Total Duration %f\n\n",totalledcount, totalnentries, totalduration);
 cout << "Wrote ROOT file." << endl;
 
 }	//end of program
