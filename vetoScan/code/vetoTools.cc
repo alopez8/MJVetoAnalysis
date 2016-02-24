@@ -142,7 +142,8 @@ bool CheckForBadErrors(MJVetoEvent veto, int entry, int isGood, bool verbose)
 		{
 			// 4: don't skip bad-scaler events
 			// 10: P3K93: don't skip "event count doesn't match ROOT entry" events
-			if (q!=4 && q!=10 && error[q] == 1) badError = true;
+			// if (q!=4 && q!=10 && error[q] == 1) badError = true;
+			if (q!=4 && error[q]==1) badError=true;
 		}
 		
 		if (badError) {
