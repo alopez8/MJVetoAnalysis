@@ -19,6 +19,7 @@ static const char Usage[] =
 "     -f (--checkFiles) : Check that files exist.\n"
 "                       : Options: `checkBuilt`, `checkGAT`, `checkBoth`, `checkGDS`, `checkAll`\n" 
 "                       : (checkBuilt and checkGAT both require PDSF)\n"
+"     -H (--findThresh) : Find QDC software thresholds for a set of runs.\n"
 "     -T (--swThresh) : Set QDC software threshold using `vetoSWThresholds.txt`\n"
 "     -p (--perfCheck) : Veto performance check (data quality).\n"
 "                      : Option: `runs`, `totals`\n"
@@ -37,7 +38,7 @@ int main(int argc, char** argv)
 	//
 	string file = "", partNum = "", threshName = "";
 	bool findThresh=0;
-	bool perfCheck=0, fileCheck=0;
+	bool perfCheck=0, fileCheck=0, findThresh=0;
 	bool checkBuilt=0,checkGAT=0,checkGDS=0;
 	bool runBreakdowns=0;
 	//
@@ -50,11 +51,12 @@ int main(int argc, char** argv)
 			{"file", required_argument, 0, 'F'},
 			{"serial",required_argument, 0, 'S'},
 			{"checkFiles", required_argument, 0, 'f'},
+			{"findThresh", no_argument, 0, 'H'},
 			{"swThresh", required_argument, 0, 'T'},
 			{"perfCheck", required_argument, 0, 'p'},
 		};
 
-		c = getopt_long (argc, argv, "hF:S:f:T:p:",long_options,&option_index);
+		c = getopt_long (argc, argv, "hF:S:f:HT:p:",long_options,&option_index);
 		if (c == -1) break;
 
 		switch (c)
@@ -78,6 +80,9 @@ int main(int argc, char** argv)
 			else if (string(optarg) == "checkBoth") {	checkBuilt=1; checkGAT=1; }
 			else if (string(optarg) == "checkAll")  {	checkBuilt=1; checkGAT=1; checkGDS=1; }
 			printf("Checking for ... built? %i  gatified? %i  GATDataSet? %i\n",checkBuilt,checkGAT,checkGDS);
+			break;
+		case 'H':
+			findThresh=1;
 			break;
 		case 'T':
 			threshName = string(optarg);
