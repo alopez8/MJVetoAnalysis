@@ -1,11 +1,8 @@
 // MJD veto analysis suite.
 // Uses the November '15 MJD built data format.
 // 
-// Run with: "make" and ./vetoScan InputFile.txt
-// 
 // Clint Wiseman, University of South Carolina
 // 1/23/2016
-
 
 #ifndef VETOSCAN_H_GUARD
 #define VETOSCAN_H_GUARD
@@ -17,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include "getopt.h"
 
 #include "TFile.h"
 #include "TChain.h"
@@ -40,11 +38,13 @@ long GetStopUnixTime(GATDataSet ds);
 int GetNumFiles(string arg);
 int color(int i);
 int PanelMap(int i);
-//int* GetQDCThreshold(int* thresh);
+int* GetQDCThreshold(string file, int *arr, string name = "");
+bool CheckForBadErrors(MJVetoEvent veto, int entry, int isGood, bool deactivate);
+int FindQDCThreshold(TH1F *qdcHist, int panel, bool verbose);
 
 // Analysis
-void vetoFileCheck(string Input = "");
-void vetoPerformance(string file);
+void vetoFileCheck(string file = "", string partNum = "", bool checkBuilt = true, bool checkGat = true, bool checkGDS = false);
+void vetoPerformance(string file, int *thresh = NULL, bool runBreakdowns = false);
 void vetoThreshFinder(string arg, int forceThresh = 500);
 
 #endif
