@@ -45,6 +45,6 @@ int FindQDCThreshold(TH1F *qdcHist, int panel, bool verbose);
 // Analysis
 void vetoFileCheck(string file = "", string partNum = "", bool checkBuilt = true, bool checkGat = true, bool checkGDS = false);
 void vetoPerformance(string file, int *thresh = NULL, bool runBreakdowns = false);
-void vetoThreshFinder(string arg, int forceThresh = 500);
+void vetoThreshFinder(string arg, bool runHistos = false);
 
 #endif

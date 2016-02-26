@@ -20,6 +20,7 @@ static const char Usage[] =
 "                       : Options: `checkBuilt`, `checkGAT`, `checkBoth`, `checkGDS`, `checkAll`\n" 
 "                       : (checkBuilt and checkGAT both require PDSF)\n"
 "     -H (--findThresh) : Find QDC software thresholds for a set of runs.\n"
+"                       : Options: `runs` or `totals`\n"
 "     -T (--swThresh) : Set QDC software threshold using `vetoSWThresholds.txt`\n"
 "     -p (--perfCheck) : Veto performance check (data quality).\n"
 "                      : Option: `runs`, `totals`\n"
@@ -37,7 +38,6 @@ int main(int argc, char** argv)
 	// http://www.gnu.org/software/libc/manual/html_node/Getopt-Long-Option-Example.html
 	//
 	string file = "", partNum = "", threshName = "";
-	bool findThresh=0;
 	bool perfCheck=0, fileCheck=0, findThresh=0;
 	bool checkBuilt=0,checkGAT=0,checkGDS=0;
 	bool runBreakdowns=0;
@@ -56,7 +56,7 @@ int main(int argc, char** argv)
 			{"perfCheck", required_argument, 0, 'p'},
 		};
 
-		c = getopt_long (argc, argv, "hF:S:f:HT:p:",long_options,&option_index);
+		c = getopt_long (argc, argv, "hF:S:f:H:T:p:",long_options,&option_index);
 		if (c == -1) break;
 
 		switch (c)
@@ -83,6 +83,8 @@ int main(int argc, char** argv)
 			break;
 		case 'H':
 			findThresh=1;
+			if (string(optarg) == "runs") runBreakdowns=1;
+	    	else if (string(optarg) == "totals") runBreakdowns=0;
 			break;
 		case 'T':
 			threshName = string(optarg);
@@ -109,7 +111,7 @@ int main(int argc, char** argv)
 	int thresh[32] = {0};
 
 	if (fileCheck) 	vetoFileCheck(file,partNum,checkBuilt,checkGAT,checkGDS);
-	if (findThresh)	vetoThreshFinder(file);
+	if (findThresh)	vetoThreshFinder(file,runBreakdowns);
 	if (perfCheck)	
 	{	
 		if (threshName != "") GetQDCThreshold(file,thresh,threshName);
