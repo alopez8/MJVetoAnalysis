@@ -160,7 +160,7 @@ bool CheckForBadErrors(MJVetoEvent veto, int entry, int isGood, bool verbose)
 	return true;
 }
 
-// Place threshold 30 qdc above pedestal location.
+// Place threshold 35 qdc above pedestal location.
 // Also check if panel is active (any entries over QDC = 300)
 int FindQDCThreshold(TH1F *qdcHist, int panel, bool deactivate) 
 {
@@ -184,7 +184,7 @@ int FindQDCThreshold(TH1F *qdcHist, int panel, bool deactivate)
 	}
 
 	double xval = qdcHist->GetXaxis()->GetBinCenter(bin);
-	return xval+20;
+	return xval+35;
 }
 
 int* GetQDCThreshold(string file, int *arr, string name)
