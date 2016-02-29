@@ -30,10 +30,12 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	int globalErrorAtBeginningCount[nErrs] = {0};
 
 	// global histograms and graphs
-	TH1D *TotalMultip = new TH1D("TotalMultip","Events over threshold",32,0,32);
+	TH1D *TotalMultip = new TH1D("TotalMultip","Events over threshold",33,0,33);
 	TotalMultip->GetXaxis()->SetTitle("number of panels hit");
 	TH1D *TotalEnergy = new TH1D("TotalEnergy","Total QDC from events",100,0,60000);
 	TotalEnergy->GetXaxis()->SetTitle("energy (QDC)");
+	TH1D *TotalEnergyNoLED = new TH1D("TotalEnergyNoLED","Total QDC from non-LED events",100,0,60000);
+	TotalEnergyNoLED->GetXaxis()->SetTitle("energy (QDC)");
 	TH1F *hRawQDC[32];
 	char hname[50];
 	for (int i=0; i<32; i++){
@@ -83,6 +85,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		TH1D *LEDDeltaT = new TH1D(hname,hname,100000,0,100); // 0.001 sec/bin
 		
 		TH1D *deltaTRun = NULL;
+
 		TGraph *gMultipVsTimeRun = NULL;
 		if (runBreakdowns)
 		{
@@ -94,7 +97,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			gMultipVsTimeRun->SetName(hname);
 		}
 
-		printf("========== Scanning run %i, %li entries.=============\n",run,vEntries);
+		printf("========== Scanning run %i, %li entries, Duration: %f.=============\n",run,vEntries,duration);
 		MJVetoEvent prev;
 		MJVetoEvent first;
 		bool foundFirst = false;
@@ -133,6 +136,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			// fill QDC histos
 	    	for (int j = 0; j < 32; j++) hRawQDC[j]->Fill(veto.QDC[j]);
 	    	TotalEnergy->Fill(veto.totE);
+			if (veto.multip < 20) TotalEnergyNoLED->Fill(veto.totE);
 
 	    	// fill multiplicity histo
 	    	TotalMultip->Fill(veto.multip);
@@ -201,6 +205,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	    	deltaT->Fill(xTime-xTimePrev);
 	    	if (runBreakdowns) { 
 	    		deltaTRun->Fill(xTime-xTimePrev);
+
 		    	gMultipVsTimeRun->SetPoint(i,xTime,veto.multip);
 		    }
 
@@ -220,6 +225,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			RootFile->cd("runPlots");
 			sprintf(hname,"%d_deltaT", run);
 			deltaTRun->Write(hname,TObject::kOverwrite); 
+
 			sprintf(hname,"%d_MultipVsTime", run);
 			gMultipVsTimeRun->SetMarkerColor(4);
 			gMultipVsTimeRun->SetMarkerStyle(21);
@@ -227,6 +233,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			gMultipVsTimeRun->SetLineColorAlpha(kWhite,0);
 			gMultipVsTimeRun->Write(hname,TObject::kOverwrite);
 			delete deltaTRun;
+
 			delete gMultipVsTimeRun;
 			RootFile->cd();
 		}
@@ -281,6 +288,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 
 	TotalMultip->Write("TotalMultip",TObject::kOverwrite);
 	TotalEnergy->Write("TotalEnergy",TObject::kOverwrite);
+	TotalEnergyNoLED->Write("TotalEnergyNoLED",TObject::kOverwrite);
 	deltaT->Write("deltaT",TObject::kOverwrite);
 	for (int i=0;i<32;i++){
 		sprintf(hname,"hRawQDC%d",i);
