@@ -1,7 +1,7 @@
 // MJD veto analysis suite.
 // Uses the November '15 MJD built data format.
 // 
-// Clint Wiseman, University of South Carolina
+// Clint Wiseman, USC/Majorana
 // 1/23/2016
 
 #ifndef VETOSCAN_H_GUARD
@@ -46,5 +46,6 @@ int FindQDCThreshold(TH1F *qdcHist, int panel, bool verbose);
 void vetoFileCheck(string file = "", string partNum = "", bool checkBuilt = true, bool checkGat = true, bool checkGDS = false);
 void vetoPerformance(string file, int *thresh = NULL, bool runBreakdowns = false);
 void vetoThreshFinder(string arg, bool runHistos = false);
+void muFinder(string file, int *thresh = NULL, bool root = false, bool list = false);
 
 #endif
