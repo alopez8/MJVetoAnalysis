@@ -111,11 +111,11 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		{
 			v->GetEntry(i);
 			MJVetoEvent veto;
-			veto.SetQDCThreshold(thresh);	
+			veto.SetSWThresh(thresh);	
 	    	int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);
 	    	if (isGood != 1) 
 	    	{	    		
-	    		for (int j=0; j<nErrs; j++) if (veto.error[j]==1) {
+	    		for (int j=0; j<nErrs; j++) if (veto.GetError(j)==1) {
 	    			errorCount[j]++;
 	    			errorRunBools[j]=true;
 	    			if (i < 10) {
@@ -134,16 +134,16 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			}
 
 			// fill QDC histos
-	    	for (int j = 0; j < 32; j++) hRawQDC[j]->Fill(veto.QDC[j]);
-	    	TotalEnergy->Fill(veto.totE);
-			if (veto.multip < 20) TotalEnergyNoLED->Fill(veto.totE);
+	    	for (int j = 0; j < 32; j++) hRawQDC[j]->Fill(veto.GetQDC(j));
+	    	TotalEnergy->Fill(veto.GetTotE());
+			if (veto.GetMultip() < 20) TotalEnergyNoLED->Fill(veto.GetTotE());
 
 	    	// fill multiplicity histo
-	    	TotalMultip->Fill(veto.multip);
+	    	TotalMultip->Fill(veto.GetMultip());
 			
 	    	// very simple LED tag
-			if (veto.multip >= 20) {
-				LEDDeltaT->Fill(veto.timeSec-prev.timeSec);
+			if (veto.GetMultip() >= 20) {
+				LEDDeltaT->Fill(veto.GetTimeSec()-prev.GetTimeSec());
 				pureLEDcount++;
 			}
 
@@ -152,7 +152,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		}
 
 		// Find the SBC offset		
-		double SBCOffset = first.timeSBC - first.timeSec;
+		double SBCOffset = first.GetTimeSBC() - first.GetTimeSec();
 		printf("First good entry: %i  SBCOffset: %.2f\n",firstGoodEntry,SBCOffset);
 
 		// Find the LED frequency 
@@ -193,20 +193,19 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		{
 			v->GetEntry(i);
 			MJVetoEvent veto;
-			veto.SetQDCThreshold(thresh);	
+			veto.SetSWThresh(thresh);	
 	    	int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);
 	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
 
-	    	if (!veto.badScaler) xTime = veto.timeSec;
-	    	else if (run > 8557) xTime = veto.timeSBC - SBCOffset;
+	    	if (!veto.GetBadScaler()) xTime = veto.GetTimeSec();
+	    	else if (run > 8557) xTime = veto.GetTimeSBC() - SBCOffset;
 	    	else xTime = ((double)i / vEntries) * duration;
 
 	    	// fill time histograms.
 	    	deltaT->Fill(xTime-xTimePrev);
 	    	if (runBreakdowns) { 
 	    		deltaTRun->Fill(xTime-xTimePrev);
-
-		    	gMultipVsTimeRun->SetPoint(i,xTime,veto.multip);
+		    	gMultipVsTimeRun->SetPoint(i,xTime,veto.GetMultip());
 		    }
 
 	    	xTimePrev = xTime;
