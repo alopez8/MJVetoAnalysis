@@ -36,15 +36,28 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	TotalEnergy->GetXaxis()->SetTitle("energy (QDC)");
 	TH1D *TotalEnergyNoLED = new TH1D("TotalEnergyNoLED","Total QDC from non-LED events",100,0,60000);
 	TotalEnergyNoLED->GetXaxis()->SetTitle("energy (QDC)");
-	TH1F *hRawQDC[32];
+	TH1D *hAvgQDC = new TH1D("hAvgQDC","Average QDC from events",1000,0,5000);
+	hAvgQDC->GetXaxis()->SetTitle("Average energy (QDC)");
+	TH1D *hRawQDC[32];
 	char hname[50];
 	for (int i=0; i<32; i++){
 		sprintf(hname,"hRawQDC%d",i);
-		hRawQDC[i] = new TH1F(hname,hname,4200,0,4200);
+		hRawQDC[i] = new TH1D(hname,hname,4200,0,4200);
+		
 	}
 	TGraph *gRunVsLEDFreq;	// initialized at end of scan
+	TGraph *gErrorCountEntryVsTime; //initialized at end of scan - graph of error count (per entry) vs time
+	TGraph *gErrorCountEntryVsEntryNum;
 	vector<double> runs;
 	vector<double> freqs;
+	vector<double> ErrCountEntry;
+	vector<double> LocalErrCountEntry;
+	vector<double> EntryTime;
+	vector<double> LocalEntryTime;
+	vector<double> EntryNum;
+	vector<double> LocalEntryNum;
+	vector<double> HighDTEvent;
+	vector<double> LocalBS;	//records local entry numbers with BadScalers to identify High DT's caused by BadScalers
 	TH1D *deltaT = new TH1D("deltaT","Time between successive entries",200,0,20);
 	deltaT->GetXaxis()->SetTitle("seconds");
 	
@@ -53,6 +66,8 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	int run = 0;
 	long totEntries = 0;
 	long totDuration = 0;
+	int totHighDT = 0;
+	int totHighDTwBTS = 0;
 	while(!InputList.eof())
 	{
 		InputList >> run;
@@ -83,7 +98,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		// run-by-run histos and graphs
 		sprintf(hname,"%d_LEDDeltaT",run);
 		TH1D *LEDDeltaT = new TH1D(hname,hname,100000,0,100); // 0.001 sec/bin
-		
+
 		TH1D *deltaTRun = NULL;
 
 		TGraph *gMultipVsTimeRun = NULL;
@@ -105,25 +120,105 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		int pureLEDcount = 0;
 		bool errorRunBools[nErrs] = {0};
 		bool errorRunBeginningBools[nErrs] = {0};
+		
+		//====================== Loop to record entry time in vector ======================
+		double xTime = 0;
+		for (int i = 0; i < vEntries; i++)
+		{
+			v->GetEntry(i);
+			MJVetoEvent veto;
+			int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);
+			
+			if (!veto.badScaler) {
+				xTime = veto.timeSec;
+				LocalBS.push_back(0);
+			}	
+	    	else {
+				//xTime = ((double)i / vEntries) * duration;
+				xTime = 9999;
+				LocalBS.push_back(1);
+			}	
+			
+			if (xTime > 4000 || xTime < 0) xTime = 9999;
+			//fill entry time vector/local entry num vector
+			EntryTime.push_back(xTime);
+			LocalEntryTime.push_back(xTime);
+			
+			
+			if (i  == 0) printf("Scaler Time: %f\n xTime: %f\n Local EntryTime: %f\n\n", veto.timeSec, xTime, LocalEntryTime[0]);
+		}
+		
 		// ====================== First loop over entries =========================
 		//
+		double next_goodtime = 0;
+		double prev_goodtime = 0;
 		for (int i = 0; i < vEntries; i++)
 		{
 			v->GetEntry(i);
 			MJVetoEvent veto;
 			veto.SetQDCThreshold(thresh);	
-	    	int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);
-	    	if (isGood != 1) 
+	    	
+			int numberErrors = 0; 				//# of errors in the entry ->For finding error clusters
+			int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);
+		 	
+			if (isGood != 1) 
 	    	{	    		
-	    		for (int j=0; j<nErrs; j++) if (veto.error[j]==1) {
-	    			errorCount[j]++;
-	    			errorRunBools[j]=true;
-	    			if (i < 10) {
-	    				errorRunBeginningBools[j]=true;
-	    				globalErrorAtBeginningCount[j]++;
-	    			}
-	    		}
-	    	}
+	    		for (int j=0; j<nErrs; j++){
+					if (veto.error[j]==1) {
+						errorCount[j]++;
+						numberErrors++;
+						if (numberErrors > 18) cout <<"Error: numberErrors > 18!!!!!!!!!!!!!!" << endl;
+						errorRunBools[j]=true;
+						if (i < 10) {
+							errorRunBeginningBools[j]=true;
+							globalErrorAtBeginningCount[j]++;
+						}
+					}	
+				}
+			}
+			
+			ErrCountEntry.push_back(numberErrors);
+			LocalErrCountEntry.push_back(numberErrors);
+			
+			EntryNum.push_back(i);
+			LocalEntryNum.push_back(i);		
+			
+			if(numberErrors > 4){
+				printf("High Number of Errors!! Entry #: %d  |  # of Errors = %d  |  numErrors = %d\n\n",(int)LocalEntryNum[i],(int)LocalErrCountEntry[i], numberErrors);
+				veto.Print();
+			}	
+
+			// find next closest good timestamp of entry
+			if(LocalEntryTime[i] == 9999){
+				int k = i;
+				int j = i;
+				while (LocalEntryTime[k] == 9999){
+					k++;
+					if (k == vEntries - 1 && LocalEntryTime[k] == 9999){
+						LocalEntryTime[k] = duration;
+						break;
+					}
+				}
+				while (LocalEntryTime[j] == 9999){
+					j--;
+					if (j == 0 && LocalEntryTime[j] == 9999) {
+						LocalEntryTime[j] = 0;
+						break;
+					}	
+				}
+				next_goodtime = LocalEntryTime[k];
+				next_goodtime_entry = k;
+				prev_goodtime = LocalEntryTime[j];
+				prev_goodtime_entry = j;
+				
+				LocalEntryTime[i] = (next_goodtime + prev_goodtime) /2.0;
+				EntryTime[totEntries+i-vEntries] = LocalEntryTime[i];
+			}	
+			else{
+				next_goodtime = LocalEntryTime[i];
+				next_goodtime_entry = i;
+			}	
+
 	    	if (CheckForBadErrors(veto,i,isGood,true)) continue;
 
     		// Save the first good entry number for the SBC offset
@@ -134,8 +229,12 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			}
 
 			// fill QDC histos
-	    	for (int j = 0; j < 32; j++) hRawQDC[j]->Fill(veto.QDC[j]);
-	    	TotalEnergy->Fill(veto.totE);
+			hAvgQDC->Fill((float)veto.totE/(float)veto.multip);
+	    	for (int j = 0; j < 32; j++) {
+				hRawQDC[j]->Fill(veto.QDC[j]);
+			}
+			
+			TotalEnergy->Fill(veto.totE);
 			if (veto.multip < 20) TotalEnergyNoLED->Fill(veto.totE);
 
 	    	// fill multiplicity histo
@@ -146,7 +245,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 				LEDDeltaT->Fill(veto.timeSec-prev.timeSec);
 				pureLEDcount++;
 			}
-
+			
 			// save this entry
 			prev = veto;
 		}
@@ -187,30 +286,61 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 
 		// ====================== Second loop over entries =========================
 		//
-		double xTime = 0;
-		double xTimePrev = 0;
+
 		for (int i = 0; i < vEntries; i++)
 		{
 			v->GetEntry(i);
 			MJVetoEvent veto;
 			veto.SetQDCThreshold(thresh);	
+			double dt = 0;
 	    	int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);
-	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
-
-	    	if (!veto.badScaler) xTime = veto.timeSec;
-	    	else if (run > 8557) xTime = veto.timeSBC - SBCOffset;
-	    	else xTime = ((double)i / vEntries) * duration;
-
+	    	
+			
+			
+			if (CheckForBadErrors(veto,i,isGood,false)) continue;  	
+			
 	    	// fill time histograms.
-	    	deltaT->Fill(xTime-xTimePrev);
-	    	if (runBreakdowns) { 
-	    		deltaTRun->Fill(xTime-xTimePrev);
+	    	if  (i == 0){
+				dt = LocalEntryTime[i]-0;
+				
+			}	
+			else{
+				dt = LocalEntryTime[i] - LocalEntryTime[i-1];
+			}
+			
+			deltaT->Fill(dt);
+				if (runBreakdowns) { 
+					deltaTRun->Fill(dt);
 
-		    	gMultipVsTimeRun->SetPoint(i,xTime,veto.multip);
-		    }
+					gMultipVsTimeRun->SetPoint(i,LocalEntryTime[i],veto.multip);
+				}
+			
+			if (veto.multip <20 && veto.multip > 8){
+				printf("HIGH MULTIPLICITY (NON LED) EVENT FOUND: Entry # = %d\n",i);
+				veto.Print();
+			}
+			if (dt  > 8){
+				printf("HIGH DT  EVENT FOUND: Entry #'s = %d && %d  |  dt = %f  |  Prev Time = %f  |  Entry Time = %f \n",i-1, i,dt,LocalEntryTime[i-1],LocalEntryTime[i]);
+				HighDTEvent.push_back(i-1);
+				HighDTEvent.push_back(i);
+				totHighDT++;
+				if (LocalBS[i-1] == 1 || LocalBS[i] == 1) totHighDTwBTS++;
+			}
+		}		
+		
+		// =========================== Loop to investigate high dt events
+		for (int i = 0; i < (int)HighDTEvent.size(); i++)
+		{
+			v->GetEntry(HighDTEvent[i]);
+			MJVetoEvent veto;
+			veto.SetQDCThreshold(thresh);	
+	    	int isGood = veto.WriteEvent((int)HighDTEvent[i],vRun,vEvent,vBits,run,true);
+	    	
+				printf("HIGH DT  EVENT FOUND: Entry # = %d  |  Entry Time = %f \n",(int)HighDTEvent[i],LocalEntryTime[(int)HighDTEvent[i]]);
+				veto.Print();
 
-	    	xTimePrev = xTime;
 		}
+		
 		cout << "================ End Run " << run << ". ===================\n";
 		for (int i = 0; i < nErrs; i++) {
 			if (errorCount[i] > 0) {
@@ -218,6 +348,13 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 				globalErrorCount[i] += errorCount[i];
 			}
 		}
+		
+		LocalBS.clear();
+		LocalEntryNum.clear();
+		LocalEntryTime.clear();
+		LocalErrCountEntry.clear();
+		HighDTEvent.clear();
+
 
 		// write run-by-run plots to file and delete
 		if (runBreakdowns) 
@@ -236,13 +373,13 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 
 			delete gMultipVsTimeRun;
 			RootFile->cd();
-		}
+		}	
 	}
 
 	cout << "\n\n============== END OF SCAN. ==================\n";
 	
 	// Error count summaries.
-	printf("Error summary: %li events total, %i runs.\n",totEntries,filesScanned);
+	printf("Error summary: %li events total, %i runs, Total Duration: %ld seconds.\n",totEntries,filesScanned, totDuration);
 
 	for (int i = 0; i < nErrs; i++) {
 		if (globalErrorCount[i] > 0) 
@@ -281,20 +418,52 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	cout << "15. Indexes of either QDC1 or QDC2 PRECEDE the scaler index" << endl;
 	cout << "16. Indexes of either QDC1 or QDC2 EQUAL the scaler index" << endl;
 	cout << "17. Unknown Card is present." << endl;
+	
+	printf("\n # of High DT Events: %d  |  # of High DT Events with BadScaler: %d\n\n",totHighDT,totHighDTwBTS);
 
 	// write global plots
 	gRunVsLEDFreq = new TGraph(runs.size(),&(runs[0]),&(freqs[0]));
+	gRunVsLEDFreq->SetTitle("LED Frequency vs Run Number");
+	gRunVsLEDFreq->GetXaxis()->SetTitle("Run Number");
+	gRunVsLEDFreq->GetYaxis()->SetTitle("LED Freq (Hz)");
+	gRunVsLEDFreq->SetMarkerColor(4);
+	gRunVsLEDFreq->SetMarkerStyle(21);
+	gRunVsLEDFreq->SetMarkerSize(0.5);
+	gRunVsLEDFreq->SetLineColorAlpha(kWhite,0);
 	gRunVsLEDFreq->Write("RunVsLEDFreq",TObject::kOverwrite);
+	
+	
+	gErrorCountEntryVsTime = new TGraph(EntryTime.size(),&(EntryTime[0]),&(ErrCountEntry[0]));
+	gErrorCountEntryVsTime->SetTitle("Error Count Vs Entry Time");
+	gErrorCountEntryVsTime->GetXaxis()->SetTitle("Entry Time (sec)");
+	gErrorCountEntryVsTime->GetYaxis()->SetTitle("Error Count");
+	gErrorCountEntryVsTime->SetMarkerColor(4);
+	gErrorCountEntryVsTime->SetMarkerStyle(21);
+	gErrorCountEntryVsTime->SetMarkerSize(0.5);
+	gErrorCountEntryVsTime->SetLineColorAlpha(kWhite,0);
+	gErrorCountEntryVsTime->Write("ErrorCountEntryVsTime",TObject::kOverwrite);
+	
+	gErrorCountEntryVsEntryNum = new TGraph(EntryNum.size(),&(EntryNum[0]),&(ErrCountEntry[0]));
+	gErrorCountEntryVsEntryNum->SetTitle("Error Count vs Entry Number");
+	gErrorCountEntryVsEntryNum->GetXaxis()->SetTitle("Entry Number");
+	gErrorCountEntryVsEntryNum->GetYaxis()->SetTitle("Error Count");
+	gErrorCountEntryVsEntryNum->SetMarkerColor(4);
+	gErrorCountEntryVsEntryNum->SetMarkerStyle(21);
+	gErrorCountEntryVsEntryNum->SetMarkerSize(0.5);
+	gErrorCountEntryVsEntryNum->SetLineColorAlpha(kWhite,0);
+	gErrorCountEntryVsEntryNum->Write("ErrorCountEntryVsEntryNum",TObject::kOverwrite);
 
 	TotalMultip->Write("TotalMultip",TObject::kOverwrite);
 	TotalEnergy->Write("TotalEnergy",TObject::kOverwrite);
 	TotalEnergyNoLED->Write("TotalEnergyNoLED",TObject::kOverwrite);
+	hAvgQDC->Write("hAvgQDC",TObject::kOverwrite);
+	
 	deltaT->Write("deltaT",TObject::kOverwrite);
 	for (int i=0;i<32;i++){
 		sprintf(hname,"hRawQDC%d",i);
 		hRawQDC[i]->Write(hname,TObject::kOverwrite);
 	}
-
+	
 	// done!
 	RootFile->Close();
 	cout << "\nWrote ROOT file." << endl;
