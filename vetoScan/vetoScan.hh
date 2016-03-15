@@ -41,6 +41,7 @@ int PanelMap(int i);
 int* GetQDCThreshold(string file, int *arr, string name = "");
 bool CheckForBadErrors(MJVetoEvent veto, int entry, int isGood, bool deactivate);
 int FindQDCThreshold(TH1F *qdcHist, int panel, bool verbose);
+double InterpTime(int entry, vector<double> times, vector<double> entries, vector<bool> badScaler);
 
 // Analysis
 void vetoFileCheck(string file = "", string partNum = "", bool checkBuilt = true, bool checkGat = true, bool checkGDS = false);
