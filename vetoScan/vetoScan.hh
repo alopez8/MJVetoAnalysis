@@ -2,7 +2,7 @@
 // Uses the November '15 MJD built data format.
 // 
 // Clint Wiseman, USC/Majorana
-// 1/23/2016
+// Andrew Lopez, UTK/Majorana
 
 #ifndef VETOSCAN_H_GUARD
 #define VETOSCAN_H_GUARD

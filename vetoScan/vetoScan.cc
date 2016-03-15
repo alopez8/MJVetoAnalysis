@@ -1,8 +1,8 @@
 // MJD veto analysis suite.
 // Uses the November '15 MJD built data format.
 // 
-// Clint Wiseman, University of South Carolina
-// 1/23/2016
+// Clint Wiseman, USC/Majorana
+// Andrew Lopez, UTK/Majorana
 
 #include "vetoScan.hh"
 
