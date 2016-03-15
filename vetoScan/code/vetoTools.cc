@@ -235,3 +235,35 @@ int* GetQDCThreshold(string file, int *arr, string name)
 
 	return arr;
 }
+
+double InterpTime(int entry, vector<double> times, vector<double> entries, vector<bool> badScaler)
+{
+	if ((times.size() != entries.size()) || times.size() != badScaler.size()) 
+	{
+		cout << "Vectors are different sizes!\n";  
+		if (entry >= (int)times.size()) 
+			cout << "Entry is larger than number of entries in vector!\n";
+		return -1; 
+	}
+	
+	double iTime = 0;
+
+	double lower = 0;
+	double upper = 0;
+	if (!badScaler[entry]) iTime = times[entry];
+	else 
+	{
+		for (int i = entry; i < (int)entries.size(); i++) 
+		{
+			if (badScaler[i] == 0) { upper = times[i]; break; }
+		}
+		for (int j = entry; j > 0; j--)
+		{
+			if (badScaler[j] == 0) { lower = times[j]; break; }
+		}
+
+		iTime = (upper + lower)/2.0;
+	}
+
+	return iTime;
+}
