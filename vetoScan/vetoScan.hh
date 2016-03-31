@@ -48,5 +48,6 @@ void vetoFileCheck(string file = "", string partNum = "", bool checkBuilt = true
 void vetoPerformance(string file, int *thresh = NULL, bool runBreakdowns = false);
 void vetoThreshFinder(string arg, bool runHistos = false);
 void muFinder(string file, int *thresh = NULL, bool root = false, bool list = false);
+void muDisplayList(string file);
 
 #endif

@@ -90,11 +90,12 @@ void muFinder(string Input, int *thresh, bool root, bool list)
 		v->GetEntry(0);
 		start = (long)vRun->GetStartTime();
 		stop = (long)vRun->GetStopTime();
-		d = ds->GetRunTime()/CLHEP::second;
+		d = (double)(stop-start);
 
 		printf("\n=========== Scanning Run %i: %li entries. ===========\n",run,vEntries);
 		printf("start: %li  stop: %li  d: %.0f\n",start,stop,d);
 
+		
 		// ========= 1st loop over veto entries - Measure LED frequency. =========
 		// 
 		// Goal is to measure the LED frequency, to be used in the second loop as a 
@@ -115,16 +116,37 @@ void muFinder(string Input, int *thresh, bool root, bool list)
 		int firstGoodEntry = 0;
 		MJVetoEvent first;
 		highestMultip=0;
+		vector<double> LocalEntryTime;
+		vector<double> LocalEntryNum;
+		vector<bool> LocalBadScalers;	
+		double lastGoodTime = 0;
+		int pureLEDcount = 0;
 		for (long i = 0; i < vEntries; i++) 
 		{
 			v->GetEntry(i);
 			MJVetoEvent veto;
 			veto.SetSWThresh(swThresh);	
 	    	isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);
-    		if (CheckForBadErrors(veto,i,isGood,false)) continue;
+    		
+    		// find event time and fill vectors
+			if (!veto.GetBadScaler()) {
+				LocalBadScalers.push_back(0);
+				xTime = veto.GetTimeSec();
+			}
+			else {
+				LocalBadScalers.push_back(1);
+				corruptScaler++;
+				xTime = ((double)i / vEntries) * d;
+			}
+			
+	    	// fill vectors
+	    	// (the time vectors are revised in the second loop)
+			LocalEntryNum.push_back(i);		
+			LocalEntryTime.push_back(xTime);
 
-	    	if (veto.GetBadScaler()) corruptScaler++;
-	    	
+			// skip bad entries (true = print contents of skipped event)
+	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
+
 	    	if (veto.GetMultip() > highestMultip && veto.GetMultip() < 33) {
 	    		highestMultip = veto.GetMultip();
 	    		cout << "Finding highest multiplicity: " << highestMultip << "  entry: " << i << endl;
@@ -140,9 +162,24 @@ void muFinder(string Input, int *thresh, bool root, bool list)
 	    	// Very simple LED tag.
 			if (veto.GetMultip() >= 20) {
 				LEDDeltaT->Fill(veto.GetTimeSec()-prev.GetTimeSec());
+				pureLEDcount++;
 			}
+			
+			// end of loop : save things
 			prev = veto;
+			lastGoodTime = xTime;
 		}
+
+		// make sure the local vectors are all the same size
+		if (LocalEntryNum.size() != LocalEntryTime.size())
+		printf("Warning! Local vectors are not the same size!\n");
+
+		// if duration is corrupted, use the last good timestamp as the duration.
+		if (d == 0) {
+			printf("Corrupted duration. Using last good timestamp: %.2f\n",lastGoodTime);
+			d = lastGoodTime;
+		}
+
 		// Find the SBC offset		
 		double SBCOffset = first.GetTimeSBC() - first.GetTimeSec();
 		printf("First good entry: %i  SBCOffset: %.2f\n",firstGoodEntry,SBCOffset);
@@ -174,22 +211,32 @@ void muFinder(string Input, int *thresh, bool root, bool list)
 			LEDTurnedOff = true;
 		}
 		double LEDperiod = 1/LEDfreq;
+		delete LEDDeltaT;
 
 		// Ralph suggests we vary these parameters and do a study of the accidentals.
 		// double RMSTimeWindow = 10 * LEDrms;
 		double RMSTimeWindow = 0.1;
-
 		int highMultipThreshold = highestMultip - 10;
-
 		printf("HM: %i LED_f: %.8f LED_t: %.8f RMS: %8f\n",highestMultip,LEDfreq,1/LEDfreq,LEDrms);
 		printf("LED window: %.2f  Multip Threshold: %i\n",RMSTimeWindow,highMultipThreshold);
-		if (LEDperiod > 9 || vEntries < 100) {
-			badLEDFreq = true;
-			printf("Warning: LED period is %.2f, total entries: %li.  Can't use it in the time cut!\n",LEDperiod,vEntries);
+		
+		// set a flag for "bad LED" (usually a short run causes it)
+		// and replace the period with the "simple" one if possible
+		badLEDFreq = false;
+		if (LEDperiod > 9 || vEntries < 100) 
+		{
+			printf("Warning: Short run.\n");
+			if (pureLEDcount > 3) {
+				printf("   From histo method, LED freq is %.2f.\n   Reverting to the approx rate (%.2fs) ... \n"
+					,LEDfreq,(double)pureLEDcount/d);
+				LEDperiod = d/pureLEDcount;
+			}
+			else { 
+				printf("   Warning: LED info is corrupted!  Will not use LED period information for this run.\n");
+				LEDperiod = 9999;
+				badLEDFreq = true;
+			}
 		}
-		delete LEDDeltaT;
-
-
 
 		// ========= 2nd loop over veto entries - Find muons! =========
 		//
@@ -208,6 +255,31 @@ void muFinder(string Input, int *thresh, bool root, bool list)
 			MJVetoEvent veto;
 			veto.SetSWThresh(swThresh);	
 	    	isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);
+
+	    	// find event time 
+			if (!veto.GetBadScaler()) {
+				xTime = veto.GetTimeSec();
+			}
+			else if (run > 8557 && veto.GetTimeSBC() < 2000000000) {
+				xTime = veto.GetTimeSBC() - SBCOffset;
+				double interpTime = InterpTime(i,LocalEntryTime,LocalEntryNum,LocalBadScalers);
+				printf("Entry %li : SBC method: %.2f  Interp method: %.2f  sbc-interp: %.2f\n",i,xTime,interpTime,xTime-interpTime);
+			}
+			else {
+				double eTime = ((double)i / vEntries) * d;
+				xTime = InterpTime(i,LocalEntryTime,LocalEntryNum,LocalBadScalers);
+				printf("Entry %li : Entry method: %.2f  Interp method: %.2f  eTime-interp: %.2f\n",i,eTime,xTime,eTime-xTime);
+			}
+			LocalEntryTime[i] = xTime;	// replace entry with the more accurate one
+			
+			// look at delta-t between events
+			double dt = xTime - xTimePrev;
+			if (dt > LEDperiod + RMSTimeWindow && i > 0){
+				printf("High delta-T event: Entry %li, Prev %li.  dt = %.2f  xTime = %.2f  xTimePrev = %.2f  window: dt > %.2fs\n"
+					,i,i-1,dt,xTime,xTimePrev,LEDperiod+RMSTimeWindow);
+			}
+			
+			// skip bad entries (true = print contents of skipped event)
 	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
 
 			//----------------------------------------------------------	    	

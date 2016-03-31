@@ -28,6 +28,7 @@ static const char Usage[] =
 "     -m (--muFinder) : Scan runs for muons.\n"
 "                     : If -T is specified, user picks which SW thresholds to use.\n"
 "                     : Output options: `root`,`list`,`both`\n"
+"     -D (--dispList) : Create veto hit list for vetoDisplay code\n"
 "\n";
 
 
@@ -45,6 +46,7 @@ int main(int argc, char** argv)
 	bool checkBuilt=0,checkGAT=0,checkGDS=0;
 	bool runBreakdowns=0;
 	bool findMuons=0,root=0,list=0;
+	bool muList=0;
 	//
 	int c;
 	int option_index = 0;
@@ -59,9 +61,10 @@ int main(int argc, char** argv)
 			{"swThresh", required_argument, 0, 'T'},
 			{"perfCheck", required_argument, 0, 'p'},
 			{"muFinder", required_argument, 0, 'm'},
+			{"dispList", no_argument,0, 'D'},
 		};
 
-		c = getopt_long (argc, argv, "hF:S:f:H:T:p:m:",long_options,&option_index);
+		c = getopt_long (argc, argv, "hF:S:f:H:T:p:m:D",long_options,&option_index);
 		if (c == -1) break;
 
 		switch (c)
@@ -106,6 +109,9 @@ int main(int argc, char** argv)
 			else if (string(optarg) == "list") list=1;
 			else if (string(optarg) == "both") { root=1; list=1; }
 			break;
+		case 'D':
+			muList=1;
+			break;
 		case '?':
 		    if (isprint (optopt))  fprintf (stderr, "Unknown option `-%c'.\n", optopt);
 		    else fprintf (stderr,"Unknown option character `\\x%x'.\n",optopt);
@@ -135,6 +141,7 @@ int main(int argc, char** argv)
 		else GetQDCThreshold(file,thresh);
 		muFinder(file,thresh,root,list);
 	}
+	if (muList)		muDisplayList(file);
 	// =======================================================
 
 	cout << "\nCletus codes good." << endl;
