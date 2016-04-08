@@ -29,12 +29,15 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	int globalRunsWithErrors[nErrs] = {0};
 	int globalRunsWithErrorsAtBeginning[nErrs] = {0};
 	int globalErrorAtBeginningCount[nErrs] = {0};
+	int SJCount = 0;
 	vector<double> runs;
 	vector<double> freqs;
 	vector<double> ErrCountEntry;
 	vector<double> EntryTime;
 	vector<double> EntryNum;
 	vector<int> HighDTEvent;
+	vector<double> SJTime;
+	vector<int> SJIndex;
 	long totEntries = 0;
 	long totDuration = 0;
 	int totHighDT = 0;
@@ -59,6 +62,9 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 
 	TH1D *QDC_over_Multip = new TH1D("QDC_over_Multip","Average QDC from events",1000,0,5000);
 	QDC_over_Multip->GetXaxis()->SetTitle("Average energy (QDC)");
+	
+	TH1D *TimestampBadEntry = new TH1D("TimestampBadEntry"," Timestamp of entries with > 2 errors",3650,0,3650);
+	TimestampBadEntry->GetXaxis()->SetTitle("seconds");
 	
 	TH1D *hRawQDC[32];
 	char hname[50];
@@ -106,6 +112,10 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		TH1D *LEDDeltaT = new TH1D(hname,hname,100000,0,100); // 0.001 sec/bin
 		TH1D *deltaTRun = NULL;
 		TGraph *gMultipVsTimeRun = NULL;
+		TGraph *gSTimeVsfIndex = NULL;	
+		TGraph *gEventCountScaler = NULL;
+		TGraph *gEventCountQDC1 = NULL;
+		TGraph *gEventCountQDC2 = NULL;
 		if (runBreakdowns)
 		{
 			sprintf(hname,"%d_deltaT", run);
@@ -114,6 +124,22 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			sprintf(hname,"%d_MultipVsTime", run);
 			gMultipVsTimeRun = new TGraph(vEntries);
 			gMultipVsTimeRun->SetName(hname);
+			
+			sprintf(hname,"%d_STimeVsfIndex", run);
+			gSTimeVsfIndex = new TGraph(vEntries);
+			gSTimeVsfIndex->SetName(hname);
+			
+			sprintf(hname,"%d_EventCountScaler", run);
+			gEventCountScaler = new TGraph(vEntries);
+			gEventCountScaler->SetName(hname);
+			
+			sprintf(hname,"%d_EventCountQDC1", run);
+			gEventCountQDC1 = new TGraph(vEntries);
+			gEventCountQDC1->SetName(hname);
+			
+			sprintf(hname,"%d_EventCountQDC2", run);
+			gEventCountQDC2 = new TGraph(vEntries);
+			gEventCountQDC2->SetName(hname);
 		}
 
 		printf("\n======= Scanning run %i, %li entries, %.0f sec. =======\n",run,vEntries,duration);
@@ -127,6 +153,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		int highestMultip = 0;
 		double xTime = 0;
 		double lastGoodTime = 0;
+		bool FirstHighMultip = false;
 
 		// ====================== First loop over entries =========================
 		for (int i = 0; i < vEntries; i++)
@@ -150,9 +177,8 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	    				globalErrorAtBeginningCount[j]++;
 	    			}
 	    		}
-	    		// if(errorsThisEntry > 1) printf("Multiple Errors (%i) found at entry %i.\n",errorsThisEntry,i);
 	    	}
-
+				
 	    	// find event time and fill vectors
 			if (!veto.GetBadScaler()) {
 				LocalBadScalers.push_back(0);
@@ -171,7 +197,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			LocalEntryNum.push_back(i);		
 			LocalEntryTime.push_back(xTime);
 			LocalErrCountEntry.push_back(errorsThisEntry);
-
+			
 			// skip bad entries (true = print contents of skipped event)
 	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
 
@@ -181,7 +207,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 				foundFirst = true;
 				firstGoodEntry = i;
 			}
-
+			
 			// find the highest multiplicity in this run (used in 2nd loop)
 	    	if (veto.GetMultip() > highestMultip && veto.GetMultip() < 33) {
 	    		highestMultip = veto.GetMultip();
@@ -197,6 +223,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			// end of loop : save things
 			prev = veto;
 			lastGoodTime = xTime;
+			
 		}
 
 		// Make sure the local vectors are all the same size
@@ -259,13 +286,27 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 
 		// add error counts to global totals
 		for (int q = 0; q < nErrs; q++) {
-			if (errorRunBools[q]) globalRunsWithErrors[q]++;
+			if (errorRunBools[q]) {
+				globalRunsWithErrors[q]++;
+				if (q == 1) printf("Missing Channels in run %d\n",run);
+				if (q == 6) printf("Duplicate Channels in run %d\n",run);
+				if (q == 7) printf("Hardware Count Mismatch in run %d\n",run);
+			}	
 			if (errorRunBeginningBools[q]) globalRunsWithErrorsAtBeginning[q]++;
 		}
-
+		
 		// ====================== Second loop over entries =========================
 		//
 		double xTimePrev = 0;
+		int TimeMethod = 0; //1 = scaler, 2 = SBC, 3 = interp
+		int TimeMethodPrev = 0;
+		double STime = 0;
+		double STimePrev = 0;
+		int SIndex = 0;
+		int SIndexPrev = 0;
+		double SSlope = 0;
+		double SSlopePrev = 0;
+		
 		for (int i = 0; i < vEntries; i++)
 		{
 			// this time we don't skip anything until all the time information is found.
@@ -273,20 +314,27 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			MJVetoEvent veto;
 			veto.SetSWThresh(thresh);	
 	    	int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);	// true: force-write event with errors.
-
+			bool isSJ = false;
+			
 	    	// find event time 
 			if (!veto.GetBadScaler()) {
 				xTime = veto.GetTimeSec();
+				STime = veto.GetTimeSec();
+				SIndex = veto.GetScalerIndex();
+				SSlope = (STime-STimePrev)/((double)SIndex-(double)SIndexPrev);
+				TimeMethod = 1;
 			}
 			else if (run > 8557 && veto.GetTimeSBC() < 2000000000) {
 				xTime = veto.GetTimeSBC() - SBCOffset;
 				double interpTime = InterpTime(i,LocalEntryTime,LocalEntryNum,LocalBadScalers);
 				printf("Entry %i : SBC method: %.2f  Interp method: %.2f  sbc-interp: %.2f\n",i,xTime,interpTime,xTime-interpTime);
+				TimeMethod = 2;
 			}
 			else {
 				double eTime = ((double)i / vEntries) * duration;
 				xTime = InterpTime(i,LocalEntryTime,LocalEntryNum,LocalBadScalers);
 				printf("Entry %i : Entry method: %.2f  Interp method: %.2f  eTime-interp: %.2f\n",i,eTime,xTime,eTime-xTime);
+				TimeMethod = 3;
 			}
 			LocalEntryTime[i] = xTime;	// replace entry with the more accurate one
 			
@@ -296,18 +344,38 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			if (runBreakdowns) { 
 				deltaTRun->Fill(dt);
 				gMultipVsTimeRun->SetPoint(i,LocalEntryTime[i],veto.GetMultip());
+				if (!veto.GetBadScaler()) {
+					gSTimeVsfIndex->SetPoint(i,veto.GetScalerIndex(),veto.GetTimeSec());		
+				}
+				gEventCountScaler->SetPoint(i,xTime,veto.GetSEC());
+				gEventCountQDC1->SetPoint(i,xTime,veto.GetQEC());
+				gEventCountQDC2->SetPoint(i,xTime,veto.GetQEC2());
 			}
 			if (dt > LEDperiod + RMSTimeWindow && i > 0){
-				printf("High delta-T event: Entry %i, Prev %i.  dt = %.2f  xTime = %.2f  xTimePrev = %.2f  window: dt > %.2fs\n"
-					,i,i-1,dt,xTime,xTimePrev,LEDperiod+RMSTimeWindow);
+				//printf("High delta-T event: Entry %i, Prev %i.  dt = %.2f  xTime = %.2f (Method: %d) xTimePrev = %.2f (MethodPrev: %d)  window: dt > %.2fs\n"
+				//	,i,i-1,dt,xTime,TimeMethod,xTimePrev,TimeMethodPrev,trueLEDperiod+RMSTimeWindow);
 				HighDTEvent.push_back(i-1);
 				HighDTEvent.push_back(i);
 				totHighDT++;
 				if (LocalBadScalers[i-1] == 1 || LocalBadScalers[i] == 1) totHighDTwBTS++;
 			}
 			
+			//look for scaler jumps
+			if (SIndex != SIndexPrev && SIndexPrev != 0){
+				if( ((STime-STimePrev) > 25 && fabs((SSlope-SSlopePrev)/SSlopePrev) > 0.8) || (STime-STimePrev) > 25 && fabs(SSlope) > 0.19) { //by examining known Scaler Jumps
+					SJCount++;
+					isSJ = true;
+					printf("Scaler Jump found!!! Run: %d  |  Entry: %d  |  ScalerTime: %f  |  ScalerTimePrev: %f  |  ScalerIndex: %d  |  ScalerIndexPrev: %d\n",run,i,STime,STimePrev,SIndex,SIndexPrev); 
+				
+				}
+			}	
+			
 			// save previous xTime
 			xTimePrev = xTime;
+			STimePrev = STime;
+			SIndexPrev = SIndex;
+			if (!isSJ) SSlopePrev = SSlope;
+			TimeMethodPrev = TimeMethod;
 			
 			// skip bad entries (true = print contents of skipped event)
 	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
@@ -322,11 +390,20 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			
 			if (veto.GetMultip() <= 20) 
 				TotalEnergyNoLED->Fill(veto.GetTotE());
-
-			if (veto.GetMultip() < highestMultip && veto.GetMultip() > 8)
+			
+			if (veto.GetMultip() < highestMultip && veto.GetMultip() > 8){
+				
 				printf("Found event with multiplicity > 8 and < highestMultip ... Multip: %i  Entry: %i\n",veto.GetMultip(),i);
+				if (!FirstHighMultip){
+					printf("First Strange Multip Event: Entry %d\n",(int)LocalEntryNum[i]);
+					veto.Print();
+					FirstHighMultip =  true;
+				}	
+				
+			}
+			
 		}		
-
+		
 		cout << "=================== End Run " << run << ". =====================\n";
 		for (int i = 0; i < nErrs; i++) {
 			if (errorCount[i] > 0) {
@@ -352,12 +429,48 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			gMultipVsTimeRun->SetMarkerSize(0.5);
 			gMultipVsTimeRun->SetLineColorAlpha(kWhite,0);
 			gMultipVsTimeRun->Write(hname,TObject::kOverwrite);
+			
+			sprintf(hname,"%d_STimeVsfIndex", run);
+			gSTimeVsfIndex->GetXaxis()->SetTitle("Scaler Index");
+			gSTimeVsfIndex->GetYaxis()->SetTitle("Scaler Time (sec)");
+			gSTimeVsfIndex->SetMarkerColor(4);
+			gSTimeVsfIndex->SetMarkerStyle(21);
+			gSTimeVsfIndex->SetMarkerSize(0.5);
+			gSTimeVsfIndex->SetLineColorAlpha(kWhite,0);
+			gSTimeVsfIndex->Write(hname,TObject::kOverwrite);
+			
+			sprintf(hname,"%d_EventCountScaler", run);
+			gEventCountScaler->SetMarkerStyle(20);
+			gEventCountScaler->SetMarkerColor(2);
+			gEventCountScaler->SetLineColorAlpha(kWhite,0);
+			gEventCountScaler->Write(hname,TObject::kOverwrite);
+			
+			sprintf(hname,"%d_EventCountQDC1", run);
+			gEventCountQDC1->SetMarkerStyle(21);
+			gEventCountQDC1->SetMarkerColor(4);
+			gEventCountQDC1->SetLineColorAlpha(kWhite,0);
+			gEventCountQDC1->Write(hname,TObject::kOverwrite);
+			
+			sprintf(hname,"%d_EventCountQDC2", run);
+			gEventCountQDC2->SetMarkerStyle(22);
+			gEventCountQDC2->SetMarkerColor(6);
+			gEventCountQDC2->SetLineColorAlpha(kWhite,0);
+			gEventCountQDC2->Write(hname,TObject::kOverwrite);	
+
 			delete deltaTRun;
 			delete gMultipVsTimeRun;
+			delete gSTimeVsfIndex;
+			delete gEventCountScaler;
+			delete gEventCountQDC1;
+			delete gEventCountQDC2;
 			RootFile->cd();
 		}	
 	}
-
+	
+	for (int i = 0; i < (int)ErrCountEntry.size(); i++){
+		if (ErrCountEntry[i] > 2) TimestampBadEntry->Fill(EntryTime[i]);
+	}
+	
 	cout << "\n\n================= END OF SCAN. =====================\n";
 	printf("%i runs, %li total events, total duration: %ld seconds.\n",filesScanned,totEntries,totDuration);
 
@@ -384,7 +497,9 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 					,globalRunsWithErrors[i],100*(double)globalRunsWithErrors[i]/filesScanned);
 			}
 		}
-		if (totHighDT>0) printf("High-DeltaT Events: %i  High DT Events with BadScaler: %i\n",totHighDT,totHighDTwBTS);
+		if (totHighDT>0) printf("High-DeltaT Events: %i  High DT Events with BadScaler: %i\n\n",totHighDT,totHighDTwBTS);
+		printf("Number of Scaler Jumps: %d",SJCount);
+		
 		printf("\nBeginning of runs (i < 10) error summary:\n");
 		for (int i = 0; i < nErrs; i++) 
 		{
@@ -451,6 +566,8 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	TotalEnergy->Write("TotalEnergy",TObject::kOverwrite);
 	TotalEnergyNoLED->Write("TotalEnergyNoLED",TObject::kOverwrite);
 	QDC_over_Multip->Write("QDC_over_Multip",TObject::kOverwrite);
+	TimestampBadEntry->Write("TimestampBadEntry",TObject::kOverwrite);
+
 	
 	deltaT->Write("deltaT",TObject::kOverwrite);
 

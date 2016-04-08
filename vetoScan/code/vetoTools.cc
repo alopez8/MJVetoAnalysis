@@ -110,9 +110,9 @@ int PanelMap(int i){
 	else if (i == 23) return 4; // North inner
 
 	else if (i == 24) return 6; // South inner
-	else if (i == 25) return 5; // South outer
+	else if (i == 25) return 7; // South outer
 	else if (i == 26) return 6; // South inner
-	else if (i == 27) return 5; // South outer
+	else if (i == 27) return 7; // South outer
 	
 	else if (i == 12) return 8; // West inner
 	else if (i == 13) return 8; // West inner
@@ -177,6 +177,7 @@ int FindQDCThreshold(TH1F *qdcHist, int panel, bool deactivate)
 
 	int firstNonzeroBin = qdcHist->FindFirstBinAbove(1,1);
 	qdcHist->GetXaxis()->SetRange(firstNonzeroBin-10,firstNonzeroBin+50);
+	//qdcHist->GetXaxis()->SetRangeUser(0,500); //alternate method of finding pedestal
 	int bin = qdcHist->GetMaximumBin();
 	
 	if (firstNonzeroBin == -1){
