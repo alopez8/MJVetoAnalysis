@@ -143,11 +143,11 @@ bool CheckForBadErrors(MJVetoEvent veto, int entry, int isGood, bool verbose)
 			// 4: don't skip bad-scaler events
 			// 10: P3K93: don't skip "event count doesn't match ROOT entry" events
 			// if (q!=4 && q!=10 && error[q] == 1) badError = true;
-			if (q!=4 && error[q]==1) badError=true;
+			if (q != 4 && error[q] == 1) badError=true;
 		}
 		
 		if (badError) {
-			if (entry < 10 && verbose == true) {
+			if (verbose == true) {
 				cout << "Skipped Entry: " << entry << endl;
 				veto.Print();
 				cout << endl;
@@ -157,7 +157,7 @@ bool CheckForBadErrors(MJVetoEvent veto, int entry, int isGood, bool verbose)
 	}
 	else return badError;	// no bad errors found
 
-	return true;
+	return false;
 }
 
 // Place threshold 35 qdc above pedestal location.
@@ -234,4 +234,36 @@ int* GetQDCThreshold(string file, int *arr, string name)
 	memcpy(arr,result,sizeof(result));
 
 	return arr;
+}
+
+double InterpTime(int entry, vector<double> times, vector<double> entries, vector<bool> badScaler)
+{
+	if ((times.size() != entries.size()) || times.size() != badScaler.size()) 
+	{
+		cout << "Vectors are different sizes!\n";  
+		if (entry >= (int)times.size()) 
+			cout << "Entry is larger than number of entries in vector!\n";
+		return -1; 
+	}
+	
+	double iTime = 0;
+
+	double lower = 0;
+	double upper = 0;
+	if (!badScaler[entry]) iTime = times[entry];
+	else 
+	{
+		for (int i = entry; i < (int)entries.size(); i++) 
+		{
+			if (badScaler[i] == 0) { upper = times[i]; break; }
+		}
+		for (int j = entry; j > 0; j--)
+		{
+			if (badScaler[j] == 0) { lower = times[j]; break; }
+		}
+
+		iTime = (upper + lower)/2.0;
+	}
+
+	return iTime;
 }

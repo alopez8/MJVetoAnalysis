@@ -80,17 +80,17 @@ void vetoThreshFinder(string Input, bool runHistos){
 
 			// Fill MJVetoEvent 
 			MJVetoEvent veto;
-			veto.SetQDCThreshold(def);	
+			veto.SetSWThresh(def);	
 	    	isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run);
 	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
 	    	
-	    	if (veto.badScaler) corruptScaler++;
-	    	if (veto.multip > highestMultip) highestMultip = veto.multip;
+	    	if (veto.GetBadScaler()) corruptScaler++;
+	    	if (veto.GetMultip() > highestMultip) highestMultip = veto.GetMultip();
 
 	    	// Fill raw histogram under 500
 	    	for (int q = 0; q < 32; q++) {
-	    		hRawQDC[q]->Fill(veto.QDC[q]);
-	    		hRunQDC[q]->Fill(veto.QDC[q]);
+	    		hRawQDC[q]->Fill(veto.GetQDC(q));
+	    		hRunQDC[q]->Fill(veto.GetQDC(q));
 			}
 		}
 		if (skippedEvents > 0) printf("Skipped %li of %li entries.\n",skippedEvents,vEntries);

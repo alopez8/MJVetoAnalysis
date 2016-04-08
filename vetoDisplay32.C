@@ -7,7 +7,7 @@
 	visualizing all the possible coincidences between 32 veto panels.
 
 	Ver. 3: CW (Aug. 2015) -- added final 8 veto panels and revised channel map.
-	Ver. 2: CW, USC (Apr. 2015) -- streamlined original code, programmed input file and dynamic coloring
+	Ver. 2: CW (Apr. 2015) -- streamlined original code, programmed input file and dynamic coloring
 	Ver. 1: David J Tedeschi, USC (Mar. 2015)
 
 	Usage: 
