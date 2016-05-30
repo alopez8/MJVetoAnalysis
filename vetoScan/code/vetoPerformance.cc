@@ -1,3 +1,15 @@
+/*
+ToDo:
+compare scaler & Gretina timestamps to search for scaler timejumps/differences (redundant with SBC)
+
+when searching for QEC/SEC differences, I need to keep track of any bad entries that are skipped 
+i.e.
+entry 10  |  "good"  | SEC: 10  |  QEC: 10
+entry 11  |  "bad"    | (SEC: 11  |  QEC: 11) not recorded/bad event skipped 
+entry 12  |  "good"  |  SEC: 12  |  QEC: 12
+! SEC/QEC change found > +1 difference. 
+*/
+
 #include "vetoScan.hh"
 
 using namespace std;
@@ -29,7 +41,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	int globalRunsWithErrors[nErrs] = {0};
 	int globalRunsWithErrorsAtBeginning[nErrs] = {0};
 	int globalErrorAtBeginningCount[nErrs] = {0};
-	int SJCount = 0;
+	int SJSBCCount = 0;
 	vector<double> runs;
 	vector<double> freqs;
 	vector<double> ErrCountEntry;
@@ -41,7 +53,21 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	long totEntries = 0;
 	long totDuration = 0;
 	int totHighDT = 0;
-	int totHighDTwBTS = 0;
+	int totHighDTwBTS = 0;	//number of high DT events with bad scaler time stamps
+	int totLED = 0;
+	int totnonLED = 0;
+	int totGoodEntries = 0;
+	bool SECReset = false;
+	bool QECReset01 = false;
+	bool QECReset02 = false;
+	int SECResetCount = 0;
+	int QECReset01count = 0;
+	int QECReset02count = 0;
+	int QEC1ChangeCount = 0;
+	int QEC2ChangeCount = 0;
+	int SECChangeCount = 0;
+	double PrevRunSBCOffset = 0;
+	double rungap = 0;
 	
 	// global histograms and graphs
 	TGraph *gRunVsLEDFreq;				// depends on: runs & freqs
@@ -74,6 +100,10 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		hRawQDC[i] = new TH1D(hname,hname,4200,0,4200);
 	}
 	
+	//define lastprevrun vetoevent holder
+	MJVetoEvent lastprevrun;	//DO NOT CLEAR
+
+	
 	// ==========================loop over input files==========================
 	//
 	while(!InputList.eof())
@@ -94,6 +124,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		v->SetBranchAddress("mVeto",&mVeto);
 		v->SetBranchAddress("vetoEvent",&vEvent);
 		v->SetBranchAddress("vetoBits",&vBits);
+		
 		long start = (long)vRun->GetStartTime();
 		long stop = (long)vRun->GetStopTime();
 		double duration = (double)(stop - start);
@@ -113,13 +144,14 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		TH1D *deltaTRun = NULL;
 		TGraph *gMultipVsTimeRun = NULL;
 		TGraph *gSTimeVsfIndex = NULL;	
+		TGraph *gLEDTSVsLEDCount = NULL;	
 		TGraph *gEventCountScaler = NULL;
 		TGraph *gEventCountQDC1 = NULL;
 		TGraph *gEventCountQDC2 = NULL;
 		if (runBreakdowns)
 		{
 			sprintf(hname,"%d_deltaT", run);
-			deltaTRun = new TH1D(hname,hname,200,0,20);
+			deltaTRun = new TH1D(hname,hname,700,0,70);
 
 			sprintf(hname,"%d_MultipVsTime", run);
 			gMultipVsTimeRun = new TGraph(vEntries);
@@ -128,6 +160,10 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			sprintf(hname,"%d_STimeVsfIndex", run);
 			gSTimeVsfIndex = new TGraph(vEntries);
 			gSTimeVsfIndex->SetName(hname);
+			
+			sprintf(hname,"%d_LEDTSVsfIndex", run);
+			gLEDTSVsLEDCount = new TGraph(vEntries);
+			gLEDTSVsLEDCount->SetName(hname);
 			
 			sprintf(hname,"%d_EventCountScaler", run);
 			gEventCountScaler = new TGraph(vEntries);
@@ -145,6 +181,7 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		printf("\n======= Scanning run %i, %li entries, %.0f sec. =======\n",run,vEntries,duration);
 		MJVetoEvent prev;
 		MJVetoEvent first;
+		MJVetoEvent last;
 		bool foundFirst = false;
 		int firstGoodEntry = 0;
 		int pureLEDcount = 0;
@@ -154,6 +191,9 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		double xTime = 0;
 		double lastGoodTime = 0;
 		bool FirstHighMultip = false;
+		int localSJSBCcount = 0;
+		int largedt = 0; //count # of dt larger than 8
+		double SBCOffset = 0;
 
 		// ====================== First loop over entries =========================
 		for (int i = 0; i < vEntries; i++)
@@ -162,7 +202,8 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			MJVetoEvent veto;
 			veto.SetSWThresh(thresh);	
 	    	int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true); // true: force-write event with errors.
-	    	
+			bool isLED = false;
+
 	    	// count up error types
 	    	int errorsThisEntry = 0; 
 	    	if (isGood != 1) 
@@ -200,29 +241,43 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			
 			// skip bad entries (true = print contents of skipped event)
 	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
+			
+			totGoodEntries++;
 
     		// Save the first good entry number for the SBC offset
-			if (isGood == 1 && !foundFirst) {
+			//deleted isGood == 1 requirement because we already checked for bad errors in CheckForBadErrors
+			if (!foundFirst && veto.GetTimeSBC() > 0 && veto.GetTimeSec() > 0 && errorRunBools[4] == false) { //current badtimestamp is not a "bad" error. include errorRunBools[4] ==false to make sure we get a good timestamp for SBC offset
 				first = veto;
 				foundFirst = true;
 				firstGoodEntry = i;
 			}
-			
+				
 			// find the highest multiplicity in this run (used in 2nd loop)
 	    	if (veto.GetMultip() > highestMultip && veto.GetMultip() < 33) {
 	    		highestMultip = veto.GetMultip();
 	    		cout << "Finding highest multiplicity: " << highestMultip << "  entry: " << i << endl;
 	    	}
-
+			
 	    	// very simple LED tag 
-			if (veto.GetMultip() >= 20) {
+			if (veto.GetMultip() > 20) {
 				LEDDeltaT->Fill(veto.GetTimeSec()-prev.GetTimeSec());
 				pureLEDcount++;
+				isLED = true;
+				totLED++;
+				if (runBreakdowns) { 
+					if (!veto.GetBadScaler()) {
+						gLEDTSVsLEDCount->SetPoint(i,pureLEDcount,veto.GetTimeSec());
+					}
+					else printf("bad scaler LED! run: %d  |  entry: %d  |  ledcount: %d\n",run,i,pureLEDcount);
+				}
 			}
+			
+			if (!isLED) totnonLED++;
 			
 			// end of loop : save things
 			prev = veto;
 			lastGoodTime = xTime;
+			veto.Clear();
 			
 		}
 
@@ -232,14 +287,14 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 
 		// if duration is corrupted, use the last good timestamp as the duration.
 		if (duration == 0) {
-			printf("Corrupted duration. Using last good timestamp: %.2f\n",lastGoodTime);
-			duration = lastGoodTime;
+			printf("Corrupted duration. Using last good timestamp: %.2f\n",lastGoodTime-first.GetTimeSec());
+			duration = lastGoodTime-first.GetTimeSec();
 			totDuration += duration;
 		}
 
 		// find the SBC offset		
-		double SBCOffset = first.GetTimeSBC() - first.GetTimeSec();
-		printf("First good entry: %i  SBCOffset: %.2f\n",firstGoodEntry,SBCOffset);
+		SBCOffset = first.GetTimeSBC() - first.GetTimeSec();
+		printf("First good entry: %i  |  SBCOffset: %.2f  |  firstScalerTime: %lf  |  firstSBCTime: %lf  |  firstScalerIndex: %ld\n",firstGoodEntry,SBCOffset,first.GetTimeSec(),first.GetTimeSBC(),first.GetScalerIndex());
 
 		// find the LED frequency, set time window, 
 		double RMSTimeWindow = 0.1;
@@ -298,15 +353,18 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 		// ====================== Second loop over entries =========================
 		//
 		double xTimePrev = 0;
+		if (start != 0) xTimePrev = (double)start;
+		else xTimePrev = first.GetTimeSec();
 		int TimeMethod = 0; //1 = scaler, 2 = SBC, 3 = interp
-		int TimeMethodPrev = 0;
 		double STime = 0;
 		double STimePrev = 0;
 		int SIndex = 0;
 		int SIndexPrev = 0;
-		double SSlope = 0;
-		double SSlopePrev = 0;
+		double SBCTime = 0;
+		double TSdifference = 0;
+		prev.Clear();
 		
+		//-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 		for (int i = 0; i < vEntries; i++)
 		{
 			// this time we don't skip anything until all the time information is found.
@@ -314,15 +372,15 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			MJVetoEvent veto;
 			veto.SetSWThresh(thresh);	
 	    	int isGood = veto.WriteEvent(i,vRun,vEvent,vBits,run,true);	// true: force-write event with errors.
-			bool isSJ = false;
 			
 	    	// find event time 
 			if (!veto.GetBadScaler()) {
 				xTime = veto.GetTimeSec();
 				STime = veto.GetTimeSec();
 				SIndex = veto.GetScalerIndex();
-				SSlope = (STime-STimePrev)/((double)SIndex-(double)SIndexPrev);
 				TimeMethod = 1;
+				if(run > 8557 && veto.GetTimeSBC() < 2000000000) SBCTime = (veto.GetTimeSBC() - SBCOffset);
+				
 			}
 			else if (run > 8557 && veto.GetTimeSBC() < 2000000000) {
 				xTime = veto.GetTimeSBC() - SBCOffset;
@@ -337,10 +395,19 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 				TimeMethod = 3;
 			}
 			LocalEntryTime[i] = xTime;	// replace entry with the more accurate one
+					
+			if (i == firstGoodEntry && filesScanned > 1 && runs.back() - runs[runs.size()-2] == 1){ //if this run immediately follows the previous run, calculate the run gap
+				rungap = (first.GetTimeSBC()-SBCOffset) - (lastprevrun.GetTimeSBC()-PrevRunSBCOffset);
+				printf("[BETWEEN RUNS] difference in time: %f seconds  |  difference in SEC: %ld  |  difference in QEC: %ld  |  difference in QEC2: %ld\n",rungap,first.GetSEC()-lastprevrun.GetSEC(),first.GetQEC()-lastprevrun.GetQEC(),first.GetQEC2()-lastprevrun.GetQEC2());
+			if (rungap > 15) printf("Rungap > 15 seconds, buffer events might have problems. run: %d   |  previous run: %d  |  rungap: %f\n",run,runs[runs.size()-2],rungap);
+			}	
 			
+			if (veto.GetError(1)) printf("QDC Channels < 32, missing packet. entry: %d  |  Scaler Index: %ld  |  Scaler Time: %f  |  SBC Time: %f\n",i,veto.GetScalerIndex(),veto.GetTimeSec(),veto.GetTimeSBC());
+
 			// look at delta-t between events
 			double dt = xTime - xTimePrev;
 			deltaT->Fill(dt);
+			if (dt > 8) largedt++;
 			if (runBreakdowns) { 
 				deltaTRun->Fill(dt);
 				gMultipVsTimeRun->SetPoint(i,LocalEntryTime[i],veto.GetMultip());
@@ -352,30 +419,72 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 				gEventCountQDC2->SetPoint(i,xTime,veto.GetQEC2());
 			}
 			if (dt > LEDperiod + RMSTimeWindow && i > 0){
-				//printf("High delta-T event: Entry %i, Prev %i.  dt = %.2f  xTime = %.2f (Method: %d) xTimePrev = %.2f (MethodPrev: %d)  window: dt > %.2fs\n"
-				//	,i,i-1,dt,xTime,TimeMethod,xTimePrev,TimeMethodPrev,trueLEDperiod+RMSTimeWindow);
+				printf("High delta-T event: Entry %i, Prev %i.  dt = %.2f  xTime = %.2f (Method: %d) xTimePrev = %.2f  |  window: dt > %.2fs\n"
+					,i,i-1,dt,xTime,TimeMethod,xTimePrev,LEDperiod+RMSTimeWindow);
 				HighDTEvent.push_back(i-1);
 				HighDTEvent.push_back(i);
 				totHighDT++;
 				if (LocalBadScalers[i-1] == 1 || LocalBadScalers[i] == 1) totHighDTwBTS++;
 			}
 			
-			//look for scaler jumps
-			if (SIndex != SIndexPrev && SIndexPrev != 0){
-				if( ((STime-STimePrev) > 25 && fabs((SSlope-SSlopePrev)/SSlopePrev) > 0.8) || (STime-STimePrev) > 25 && fabs(SSlope) > 0.19) { //by examining known Scaler Jumps
-					SJCount++;
-					isSJ = true;
-					printf("Scaler Jump found!!! Run: %d  |  Entry: %d  |  ScalerTime: %f  |  ScalerTimePrev: %f  |  ScalerIndex: %d  |  ScalerIndexPrev: %d\n",run,i,STime,STimePrev,SIndex,SIndexPrev); 
-				
-				}
-			}	
+			//track Event Count Changes/resets			
+			if (veto.GetSEC() == 0 && i != 0) {
+				printf("SEC reset found: Run: %d  |  entry: %d  |  SEC: %ld  |  prevSEC: %ld\n",run,i,veto.GetSEC(),prev.GetSEC());
+				SECReset = true;
+				SECResetCount++;
+			}
+			else SECReset = false;
+			
+			if (veto.GetQEC() == 0 && i != 0){
+				printf("QEC1 reset found: Run: %d  |  entry: %d  |  Index: %ld  |  QEC1: %ld  |  prevQEC1: %ld\n",run,i,veto.GetScalerIndex(),veto.GetQEC(),prev.GetQEC());
+				QECReset01count++;
+			}
+			else QECReset01 = false;
+			
+			if (veto.GetQEC2() == 0 && i != 0){
+				printf("QEC2 reset found: Run: %d  |  entry: %d  |  Index: %ld  |  QEC2: %ld  |  prevQEC2: %ld\n",run,i,veto.GetScalerIndex(),veto.GetQEC2(),prev.GetQEC2());
+				QECReset02count++;
+			}
+			else QECReset02 = false;
+			
+			if(abs(veto.GetSEC() - prev.GetSEC()) > 1 && i > firstGoodEntry) {
+				printf("SEC Change found!!:  entry: %d  |  xTime: %f  |  Index: %ld  |  SEC: %ld  |  prevSEC: %ld\n", i,xTime,veto.GetScalerIndex(),veto.GetSEC(),prev.GetSEC()); 
+				SECChangeCount++;
+			}
+			
+			if(abs(veto.GetQEC() - prev.GetQEC()) > 1 && i > firstGoodEntry) {
+				printf("QEC1 Change found!!:  entry: %d  |  xTime: %f  |  Index: %ld  |  QEC1: %ld  |  prevQEC1: %ld\n", i,xTime,veto.GetQDC1Index(),veto.GetQEC(),prev.GetQEC()); 
+				QEC1ChangeCount++;
+			}
+			
+			if(abs(veto.GetQEC2() - prev.GetQEC2()) > 1 && i > firstGoodEntry) {
+				printf("QEC2 Change found!!:  entry: %d  |  xTime: %f  |  Index: %ld  |  QEC2: %ld  |  prevQEC2: %ld\n", i,xTime,veto.GetQDC2Index(),veto.GetQEC2(),prev.GetQEC2()); 
+				QEC2ChangeCount++;
+			}
+			
+			if (STime != 0 && SBCTime !=0 && SBCOffset != 0){
+				//removed from 453: fabs(STime - SBCTime) > 1 && 
+				if(fabs(fabs(STime - SBCTime) - TSdifference) > 1 ){ //TSdifference will allow us to locate only the FIRST entries where timestamps get out of sync
+					SJSBCCount++;
+					localSJSBCcount++;
+					TSdifference = STime - SBCTime;
+					printf("SBC Scaler Jump found!!! Run: %d  |  Entry: %d  |  DeltaT: %f  |  Scaler DeltaT: %f  |  ScalerIndex: %d  |  PrevScalerIndex: %d  |  (rough)LED count: %f\n|  ScalerTime: %f  |  SBCTime: %f  | SECReset?: %d  |  QECReset01?: %d  |  QECReset02?: %d\n",run,i,fabs(STime-SBCTime),fabs(STime-STimePrev),SIndex,SIndexPrev,(STime-first.GetTimeSec())/LEDperiod,STime,SBCTime,SECReset,QECReset01,QECReset02); 
+				}	
+			}
+	
+			if (i == vEntries-1) {
+				printf("run %d last event-> Start Time: %ld  |  Stop Time: %ld  |  Scaler Time: %f  |  SBC Time: %f  |  LED estimated duration: %f (# of LEDs: %d  Period: %f)\n",run,start,stop,STime,SBCTime,pureLEDcount*LEDperiod, pureLEDcount,LEDperiod);
+				printf("Scaler/SBC duration difference: %f\n",STime - SBCTime);
+				if (STime - SBCTime > 4 && SBCOffset != 0) printf("Found Scaler/SBC duration conflict!\n");
+			}
 			
 			// save previous xTime
 			xTimePrev = xTime;
 			STimePrev = STime;
 			SIndexPrev = SIndex;
-			if (!isSJ) SSlopePrev = SSlope;
-			TimeMethodPrev = TimeMethod;
+			STime = 0;
+			SBCTime = 0;
+			SIndex = 0;
 			
 			// skip bad entries (true = print contents of skipped event)
 	    	if (CheckForBadErrors(veto,i,isGood,false)) continue;
@@ -385,9 +494,9 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 	    	TotalMultip->Fill(veto.GetMultip());
 			QDC_over_Multip->Fill(veto.GetTotE()/(double)veto.GetMultip());	    	
 	    	
-	    	for (int j = 0; j < 32; j++) 
+	    	for (int j = 0; j < 32; j++) { 
 	    		hRawQDC[j]->Fill(veto.GetQDC(j));
-			
+			}
 			if (veto.GetMultip() <= 20) 
 				TotalEnergyNoLED->Fill(veto.GetTotE());
 			
@@ -399,9 +508,16 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 					veto.Print();
 					FirstHighMultip =  true;
 				}	
-				
 			}
 			
+			// end of loop : save things
+			prev = veto;
+			if (i == vEntries-1){
+				last = veto;
+				PrevRunSBCOffset = SBCOffset;
+				lastprevrun = last;
+			}	
+			veto.Clear();
 		}		
 		
 		cout << "=================== End Run " << run << ". =====================\n";
@@ -411,6 +527,11 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 				globalErrorCount[i] += errorCount[i];
 			}
 		}
+		printf("Number of SBC-Scaler mismatches  (possible scaler jumps) this run: %d\n",localSJSBCcount);
+		printf("Number of large DT this run: %d\n",largedt);
+		printf("[FIRST EVENT] Run: %d  |  firstSEC: %ld  |  firstQEC: %ld  |  firstQEC2: %ld  |  firstScalerTime: %f  |  firstSBCTime: %f  |  Scaler Index: %ld  |  vEntries: %ld\n",run,first.GetSEC(),first.GetQEC(),first.GetQEC2(),first.GetTimeSec(),first.GetTimeSBC()-SBCOffset,first.GetScalerIndex(),vEntries);
+		printf("[LAST EVENT] Run: %d  |  LastSEC: %ld  |  LastQEC: %ld  |  LastQEC2: %ld  |  LastScalerTime: %f  |  LastSBCTime: %f  |  Scaler Index: %ld  |  vEntries: %ld\n",run,last.GetSEC(),last.GetQEC(),last.GetQEC2(),last.GetTimeSec(),last.GetTimeSBC()-SBCOffset,last.GetScalerIndex(),vEntries);
+
 		// end of run cleanup
 		LocalBadScalers.clear();
 		LocalEntryNum.clear();
@@ -438,6 +559,15 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			gSTimeVsfIndex->SetMarkerSize(0.5);
 			gSTimeVsfIndex->SetLineColorAlpha(kWhite,0);
 			gSTimeVsfIndex->Write(hname,TObject::kOverwrite);
+			
+			sprintf(hname,"%d_LEDTSVsLEDcount", run);
+			gLEDTSVsLEDCount->GetXaxis()->SetTitle("LED count");
+			gLEDTSVsLEDCount->GetYaxis()->SetTitle("LED Event Scaler Time (sec)");
+			gLEDTSVsLEDCount->SetMarkerColor(4);
+			gLEDTSVsLEDCount->SetMarkerStyle(21);
+			gLEDTSVsLEDCount->SetMarkerSize(0.5);
+			gLEDTSVsLEDCount->SetLineColorAlpha(kWhite,0);
+			gLEDTSVsLEDCount->Write(hname,TObject::kOverwrite);
 			
 			sprintf(hname,"%d_EventCountScaler", run);
 			gEventCountScaler->SetMarkerStyle(20);
@@ -498,7 +628,10 @@ void vetoPerformance(string Input, int *thresh, bool runBreakdowns)
 			}
 		}
 		if (totHighDT>0) printf("High-DeltaT Events: %i  High DT Events with BadScaler: %i\n\n",totHighDT,totHighDTwBTS);
-		printf("Number of Scaler Jumps: %d",SJCount);
+		printf("Number of SBC/Scaler Jumps: %d\n",SJSBCCount);
+		printf("%li total events, %i total Good Events, %i LED events, %i nonLED events\n",totEntries,totGoodEntries,totLED,totnonLED);
+		printf("SECReset: %d  |  QECReset01: %d  |  QECReset02: %d\n",SECResetCount,QECReset01count,QECReset02count);
+		printf("SECChangeCount: %d  |  QEC1ChangeCount: %d  |  QEC2ChangeCount: %d\n",SECChangeCount,QEC1ChangeCount,QEC2ChangeCount);
 		
 		printf("\nBeginning of runs (i < 10) error summary:\n");
 		for (int i = 0; i < nErrs; i++) 
